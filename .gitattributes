@@ -1,0 +1,5 @@
+# Normalize line endings: store LF in the repository, check out LF in the
+# working tree. Without this, git compares raw bytes, so a working tree
+# written with CRLF (e.g. edited on a Windows host) shows every line as
+# modified even though nothing changed.
+* text=auto eol=lf

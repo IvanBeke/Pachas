@@ -1,0 +1,41 @@
+services:
+  db:
+    image: postgres:18-alpine
+    container_name: pachas-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: pachas
+      POSTGRES_USER: pachas
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in your .env file}
+    volumes:
+      - pachas-pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pachas -d pachas"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  pachas:
+    build: .
+    image: pachas:latest
+    container_name: pachas
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    environment:
+      PORT: "3000"
+      DATABASE_URL: postgresql://pachas:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in your .env file}@db:5432/pachas
+      # Generate your own: openssl rand -hex 32
+      SESSION_SECRET: ${SESSION_SECRET:?Set SESSION_SECRET in your .env file}
+      # Set to "false" after everyone in your household/group has an account,
+      # so strangers can't sign themselves up if the port is ever exposed.
+      ALLOW_REGISTRATION: "true"
+      # Set to "true" only if you put this behind HTTPS (e.g. a reverse proxy
+      # terminating TLS). Leave "false" for plain HTTP on your LAN.
+      COOKIE_SECURE: "false"
+
+volumes:
+  pachas-pgdata:

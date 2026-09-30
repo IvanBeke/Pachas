@@ -1,0 +1,1 @@
+ALTER TABLE "groups" ADD COLUMN "simplify_transfers" boolean DEFAULT true NOT NULL;

@@ -1,0 +1,9 @@
+{
+  // Extends the generated Nuxt config so auto-imports (defineNuxtConfig, ref,
+  // $fetch, …) resolve. `include`/`exclude` are deliberately NOT overridden:
+  // the generated ones are what make the auto-import declarations visible.
+  "extends": "./.nuxt/tsconfig.json",
+  "compilerOptions": {
+    "types": ["vitest/globals"]
+  }
+}
