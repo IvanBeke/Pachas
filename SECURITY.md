@@ -4,7 +4,8 @@ Pachas is built primarily for self-hosting on a private network.
 
 ## What this means
 
-- Keep the app and database on a trusted LAN by default.
+- Keep the app on a trusted LAN by default. The SQLite database is stored in a
+  local file mounted in the app container.
 - If you expose Pachas to the public internet, put it behind a reverse proxy
   that terminates HTTPS. Set `COOKIE_SECURE: "true"`; do not expose port 3000
   directly over plain HTTP.
@@ -14,15 +15,14 @@ Pachas is built primarily for self-hosting on a private network.
 
 ## Self-hosting baseline
 
-- Set a strong, unique `POSTGRES_PASSWORD`.
 - Set `SESSION_SECRET` to a random value (`openssl rand -hex 32`). It is
   required; rotating it invalidates all existing sessions.
+- Keep the SQLite database file and its backups private. `DATABASE_PATH` can be
+  used to choose its location inside the container.
 - Keep `.env` private and never commit it. Commit placeholders in
   `.env.example`, never real credentials or secrets.
-- Keep PostgreSQL unpublished; the provided Compose configuration exposes the
-  app, not the database.
 - Keep the app and its dependencies up to date, and maintain protected backups
-  of the database.
+  of the SQLite database.
 
 ## If you find a security issue
 

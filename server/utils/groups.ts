@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
-import { db } from "./client";
+import { runtimeDb as db } from "./client";
 import {
   categories,
   expenseSplits,
@@ -14,6 +14,7 @@ import {
 import { publicUser, type DbUser } from "./auth";
 import { GroupRole } from "../../shared/group-roles";
 import { canGroupAction } from "./group-permissions";
+import { lockGroup, writeTransaction } from "./sqlite-writes";
 
 export interface GroupMember {
   userId: string;
@@ -119,7 +120,7 @@ export async function createGroup(
   const gid = randomUUID();
   const now = Date.now();
   const members = Array.from(new Set([creatorId, ...memberIds]));
-  await db.transaction(async (tx) => {
+  await writeTransaction(async (tx) => {
     await tx.insert(groups).values({
       id: gid,
       name,
@@ -147,15 +148,8 @@ export async function addGroupMember(
   uid: string,
   actorId: string,
 ): Promise<PublicGroup | null> {
-  await db.transaction(async (tx) => {
-    const groupRows = await tx
-      .select()
-      .from(groups)
-      .where(eq(groups.id, gid))
-      .for("update")
-      .limit(1);
-    const row = groupRows[0];
-    if (!row) throw createError({ statusCode: 404, message: "not_found" });
+  await writeTransaction(async (tx) => {
+    const row = await lockGroup(tx, gid);
     const memberRows = await tx
       .select()
       .from(groupMembers)
@@ -180,15 +174,8 @@ export async function removeGroupMember(
   uid: string,
   actorId: string,
 ): Promise<PublicGroup | null> {
-  await db.transaction(async (tx) => {
-    const groupRows = await tx
-      .select()
-      .from(groups)
-      .where(eq(groups.id, gid))
-      .for("update")
-      .limit(1);
-    const row = groupRows[0];
-    if (!row) throw createError({ statusCode: 404, message: "not_found" });
+  await writeTransaction(async (tx) => {
+    const row = await lockGroup(tx, gid);
     const memberRows = await tx
       .select()
       .from(groupMembers)
@@ -230,15 +217,8 @@ export async function changeGroupMemberRole(
   role: GroupRole,
   actorId: string,
 ): Promise<PublicGroup | null> {
-  await db.transaction(async (tx) => {
-    const groupRows = await tx
-      .select()
-      .from(groups)
-      .where(eq(groups.id, gid))
-      .for("update")
-      .limit(1);
-    const row = groupRows[0];
-    if (!row) throw createError({ statusCode: 404, message: "not_found" });
+  await writeTransaction(async (tx) => {
+    const row = await lockGroup(tx, gid);
     const memberRows = await tx
       .select()
       .from(groupMembers)
@@ -314,12 +294,11 @@ export async function changeGroupMemberRole(
 }
 
 export async function deleteGroup(gid: string, actorId: string): Promise<boolean> {
-  return db.transaction(async (tx) => {
+  return writeTransaction(async (tx) => {
     const groupRows = await tx
       .select()
       .from(groups)
       .where(eq(groups.id, gid))
-      .for("update")
       .limit(1);
     const row = groupRows[0];
     if (!row) return false;
@@ -513,7 +492,7 @@ export async function updateExpenseIfOwner(
 /** How many expenses a group holds; used to gate currency changes. */
 export async function countExpenses(gid: string): Promise<number> {
   const rows = await db
-    .select({ n: sql<number>`count(*)::int` })
+    .select({ n: sql<number>`count(*)` })
     .from(expenses)
     .where(eq(expenses.groupId, gid));
   return rows[0]?.n ?? 0;

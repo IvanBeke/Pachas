@@ -1,32 +1,51 @@
-import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
-import postgres from "postgres";
+import { mkdirSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
+import { createClient } from "@libsql/client";
+import { drizzle } from "drizzle-orm/libsql";
 import * as schema from "../db/schema";
 
-// Runtime drizzle client. @nuxthub/db remains the system of record for the
-// schema (server/db/schema.ts) and migrations, but its generated client
-// inlines DATABASE_URL at build time, which breaks credential-less Docker
-// builds. This client resolves the URL lazily at runtime instead.
-let _db: PostgresJsDatabase<typeof schema> | null = null;
+export const DEFAULT_DATABASE_PATH = "/data/pachas.sqlite";
 
-export function getDb(): PostgresJsDatabase<typeof schema> {
-  if (!_db) {
-    const url = process.env.DATABASE_URL;
-    if (!url) {
-      throw new Error(
-        "[pachas] DATABASE_URL is not set. See compose.yaml / README.md.",
-      );
-    }
-    _db = drizzle({
-      client: postgres(url, { onnotice: () => {} }),
-      schema,
-      casing: "snake_case",
-    });
-  }
+function createRuntimeDatabase() {
+  const configuredPath = process.env.DATABASE_PATH?.trim() || DEFAULT_DATABASE_PATH;
+  const databasePath = resolve(configuredPath);
+  mkdirSync(dirname(databasePath), { recursive: true });
+
+  const client = createClient({
+    url: pathToFileURL(databasePath).href,
+    timeout: 5_000,
+    concurrency: 1,
+  });
+
+  return drizzle({ client, schema, casing: "snake_case" });
+}
+
+type RuntimeDatabase = ReturnType<typeof createRuntimeDatabase>;
+let _db: RuntimeDatabase | null = null;
+let _initialized: Promise<void> | null = null;
+
+export function getDb(): RuntimeDatabase {
+  if (!_db) _db = createRuntimeDatabase();
   return _db;
 }
 
-// Drop-in replacement for `db` from "@nuxthub/db".
-export const db: PostgresJsDatabase<typeof schema> = new Proxy(
-  {},
-  { get(_, prop) { return getDb()[prop as keyof object]; } },
-) as PostgresJsDatabase<typeof schema>;
+export async function initializeRuntimeDb(): Promise<void> {
+  const client = getDb().$client;
+  if (!_initialized) {
+    _initialized = (async () => {
+      await client.execute("PRAGMA foreign_keys = ON");
+      await client.execute("PRAGMA journal_mode = WAL");
+      await client.execute("PRAGMA synchronous = NORMAL");
+    })();
+  }
+  await _initialized;
+}
+
+// Keep this distinct from NuxtHub's generated `db` auto-import. The runtime
+// connection uses DATABASE_PATH and is opened lazily after the image starts.
+export const runtimeDb: RuntimeDatabase = new Proxy({} as RuntimeDatabase, {
+  get(_target, property) {
+    return getDb()[property as keyof RuntimeDatabase];
+  },
+});

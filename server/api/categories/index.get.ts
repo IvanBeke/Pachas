@@ -1,8 +1,7 @@
 import { asc } from "drizzle-orm";
-import { db } from "../../utils/client";
+import { runtimeDb as db } from "../../utils/client";
 import { categories, categoryTranslations } from "../../db/schema";
 
-// Public: the expense form needs the category list.
 export default defineEventHandler(async () => {
   const rows = await db
     .select()

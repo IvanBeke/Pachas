@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import { requireAdmin } from "../../utils/auth";
-import { db } from "../../utils/client";
+import { runtimeDb as db } from "../../utils/client";
 import { categories, categoryTranslations } from "../../db/schema";
 
 function capitalize(s: string): string {

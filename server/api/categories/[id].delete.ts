@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import { requireAdmin } from "../../utils/auth";
-import { db } from "../../utils/client";
+import { runtimeDb as db } from "../../utils/client";
 import { categories, expenses } from "../../db/schema";
 
 export default defineEventHandler(async (event) => {

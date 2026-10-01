@@ -1,6 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import { requireAdmin } from "../../../../utils/auth";
-import { db } from "../../../../utils/client";
+import { runtimeDb as db } from "../../../../utils/client";
 import { settlements } from "../../../../db/schema";
 
 // Admins can delete any settlement, regardless of creator.

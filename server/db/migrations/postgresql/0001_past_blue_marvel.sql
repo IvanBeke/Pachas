@@ -1,1 +1,0 @@
-ALTER TABLE "expenses" ADD COLUMN "title" text DEFAULT '' NOT NULL;

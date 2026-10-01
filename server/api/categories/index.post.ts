@@ -1,12 +1,10 @@
 import { sql } from "drizzle-orm";
 import { requireAdmin } from "../../utils/auth";
-import { db } from "../../utils/client";
+import { runtimeDb as db } from "../../utils/client";
 import { categories, categoryTranslations } from "../../db/schema";
 
-/** Bounds the number of translation rows one request can create. */
 const MAX_TRANSLATIONS = 20;
 
-/** Only well-formed BCP-47-ish tags become column data. */
 const LOCALE_RE = /^[a-z]{2,3}(-[A-Za-z0-9]{2,8})?$/;
 
 function capitalize(s: string): string {

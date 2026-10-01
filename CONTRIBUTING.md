@@ -22,8 +22,9 @@ want this project to evolve or how I personally use it.
 cp .env.example .env
 ```
 
-Set `POSTGRES_PASSWORD` and `SESSION_SECRET` in `.env`; generate the secret with
-`openssl rand -hex 32`. The app refuses to start without either.
+Set `SESSION_SECRET` in `.env`; generate it with `openssl rand -hex 32`. The app
+refuses to start without it. `DATABASE_PATH` is optional and defaults to the
+SQLite file `/data/pachas.sqlite` inside the app container.
 
 ```bash
 docker compose up -d --build
@@ -66,7 +67,7 @@ those paths are the ones with real money behind them.
 Afterwards, clean up the throwaway rows the suite leaves behind:
 
 ```bash
-cat scripts/cleanup-test-data.sql | docker compose exec -T db psql -U pachas pachas -v ON_ERROR_STOP=1
+docker compose exec pachas node scripts/cleanup-test-data.mjs
 ```
 
 **Verification goes through Vitest, in `tests/`.** Do not verify behavior with

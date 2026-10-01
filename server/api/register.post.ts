@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import bcrypt from "bcryptjs";
+import { sql } from "drizzle-orm";
 import { clientIp, hit } from "../utils/rate-limit";
-import { db } from "../utils/client";
+import { runtimeDb as db } from "../utils/client";
 import { users } from "../db/schema";
 import {
   findUserByUsername,
@@ -29,12 +30,6 @@ export default defineEventHandler(async (event) => {
       message: "Registration is disabled on this server.",
     });
   }
-  // Registration is open by default and each attempt costs a password hash, so
-  // it is capped per source address. Deliberately generous, because a whole
-  // household shares one LAN address and a runaway sign-up should not lock out
-  // the real users. Note this window is an hour of *process* state, so it resets
-  // on `docker compose restart pachas`; the API contract suite registers a few
-  // throwaway users per run and is the main thing that will ever reach it.
   const check = hit(`register:ip:${clientIp(event)}`, 60, 60 * 60_000);
   if (!check.ok) {
     throw createError({
@@ -66,17 +61,21 @@ export default defineEventHandler(async (event) => {
   }
   const displayName =
     (name || username).toString().trim().slice(0, 60) || username;
-  // Async, so a flood of signups cannot pin the event loop the way the
-  // synchronous call did.
   const passwordHash = await bcrypt.hash(password, 10);
   const uid = randomUUID();
-  await db.insert(users).values({
-    id: uid,
-    username,
-    name: displayName,
-    passwordHash,
-    createdAt: Date.now(),
-  });
+  await db.transaction(async (tx) => {
+    const result = await tx
+      .select({ count: sql<number>`count(*)` })
+      .from(users);
+    await tx.insert(users).values({
+      id: uid,
+      username,
+      name: displayName,
+      passwordHash,
+      role: (result[0]?.count ?? 0) === 0 ? "admin" : "user",
+      createdAt: Date.now(),
+    });
+  }, { behavior: "immediate" });
   const u = await findUserById(uid);
   await createSession(event, uid);
   return publicUser(u!);

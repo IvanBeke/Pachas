@@ -1,15 +1,15 @@
 import { sql } from "drizzle-orm";
 import { requireAdmin } from "../../utils/auth";
-import { db } from "../../utils/client";
+import { runtimeDb as db } from "../../utils/client";
 import { expenses, groups, settlements, users } from "../../db/schema";
 
 export default defineEventHandler(async (event) => {
   await requireAdmin(event);
   const [u, g, e, s] = await Promise.all([
-    db.select({ n: sql<number>`count(*)::int` }).from(users),
-    db.select({ n: sql<number>`count(*)::int` }).from(groups),
-    db.select({ n: sql<number>`count(*)::int` }).from(expenses),
-    db.select({ n: sql<number>`count(*)::int` }).from(settlements),
+    db.select({ n: sql<number>`count(*)` }).from(users),
+    db.select({ n: sql<number>`count(*)` }).from(groups),
+    db.select({ n: sql<number>`count(*)` }).from(expenses),
+    db.select({ n: sql<number>`count(*)` }).from(settlements),
   ]);
   const userRows = await db
     .select({

@@ -244,7 +244,7 @@ guard only makes sense for the creator (to avoid orphaning the group).
 
 Stated so these are decisions, not oversights:
 
-- **`x-powered-by` on the db container and other cosmetic hardening** — out of
+- **`x-powered-by` and other cosmetic hardening** — out of
   scope.
 - **Peppering password hashes with `SESSION_SECRET`.** `bcryptjs` is adequate
   for passwords as configured. Mixing a secret into password verification is a

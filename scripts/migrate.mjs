@@ -1,99 +1,99 @@
-// Applies Drizzle SQL migrations at container startup (see entrypoint.sh).
-// Journal-driven: each migration in meta/_journal.json is applied once and
-// recorded in drizzle.__drizzle_migrations. Individual statements tolerate
-// "already exists" errors so the baseline also lands on databases created by
-// the pre-Drizzle app (whose CREATE TABLE IF NOT EXISTS bootstrap already
-// created the same tables).
-import { readFileSync, existsSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { mkdirSync, readFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import postgres from "postgres";
+import { DatabaseSync } from "node:sqlite";
 
-const DATABASE_URL = process.env.DATABASE_URL;
-if (!DATABASE_URL) {
-  console.error("[pachas] DATABASE_URL is not set. See compose.yaml / README.md.");
-  process.exit(1);
-}
+const DEFAULT_DATABASE_PATH = "/data/pachas.sqlite";
+const databasePath = resolve(
+  process.env.DATABASE_PATH?.trim() || DEFAULT_DATABASE_PATH,
+);
+mkdirSync(dirname(databasePath), { recursive: true });
 
-// Postgres error codes that mean "this step already had an effect":
-// 42P07 duplicate_table/duplicate_index, 42701 duplicate_column,
-// 42710 duplicate_object (constraints).
-const TOLERATED = new Set(["42P07", "42701", "42710"]);
-const GROUP_ROLE_BACKFILL = "0006_blue_hellfire_club";
+const database = new DatabaseSync(databasePath, {
+  enableForeignKeyConstraints: true,
+  timeout: 5_000,
+});
+database.exec("PRAGMA journal_mode = WAL");
+database.exec("PRAGMA synchronous = NORMAL");
 
-const dir = join(dirname(fileURLToPath(import.meta.url)), "..", "migrations", "postgresql");
+const migrationsDir = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "migrations",
+  "sqlite",
+);
 const journal = JSON.parse(
-  readFileSync(join(dir, "meta", "_journal.json"), "utf8"),
+  readFileSync(join(migrationsDir, "meta", "_journal.json"), "utf8"),
 );
 
-const sql = postgres(DATABASE_URL, { max: 1 });
+database.exec(`
+  CREATE TABLE IF NOT EXISTS __drizzle_migrations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    hash TEXT NOT NULL UNIQUE,
+    created_at INTEGER NOT NULL
+  )
+`);
+const applied = new Set(
+  database
+    .prepare("SELECT hash FROM __drizzle_migrations")
+    .all()
+    .map((row) => row.hash),
+);
 
 try {
-  await sql`CREATE SCHEMA IF NOT EXISTS drizzle`;
-  await sql`
-    CREATE TABLE IF NOT EXISTS drizzle.__drizzle_migrations (
-      id SERIAL PRIMARY KEY,
-      hash TEXT NOT NULL,
-      created_at BIGINT NOT NULL
-    )
-  `;
-  const applied = new Set(
-    (await sql`SELECT hash FROM drizzle.__drizzle_migrations`).map((r) => r.hash),
-  );
-
   for (const entry of journal.entries) {
-    const tag = entry.tag;
-    const hash = `${entry.idx}_${tag}`;
-    if (applied.has(tag) || applied.has(hash)) {
-      continue;
-    }
-    const file = join(dir, `${tag}.sql`);
-    if (!existsSync(file)) {
-      console.error(`[pachas] migration file missing: ${tag}.sql`);
-      process.exit(1);
-    }
-    const statements = readFileSync(file, "utf8")
+    if (applied.has(entry.tag)) continue;
+    const migrationPath = join(migrationsDir, `${entry.tag}.sql`);
+    const statements = readFileSync(migrationPath, "utf8")
       .split("--> statement-breakpoint")
-      .map((s) => s.trim())
+      .map((statement) => statement.trim())
       .filter(Boolean);
-    for (const stmt of statements) {
-      try {
-        await sql.unsafe(stmt);
-      } catch (e) {
-        if (e?.code && TOLERATED.has(String(e.code))) continue;
-        throw e;
-      }
+
+    database.exec("BEGIN IMMEDIATE");
+    try {
+      for (const statement of statements) database.exec(statement);
+      database
+        .prepare("INSERT INTO __drizzle_migrations (hash, created_at) VALUES (?, ?)")
+        .run(entry.tag, Date.now());
+      database.exec("COMMIT");
+    } catch (error) {
+      database.exec("ROLLBACK");
+      throw error;
     }
-    // Data backfills live beside their schema version without hand-editing
-    // Drizzle-generated SQL. This one maps existing group creators to their
-    // new creator membership role (and repairs any legacy groups missing that
-    // membership row) exactly once, when the role column is introduced.
-    if (tag === GROUP_ROLE_BACKFILL) {
-      await sql`
-        UPDATE groups AS g
-        SET created_by = (
-          SELECT gm.user_id
-          FROM group_members AS gm
-          WHERE gm.group_id = g.id
-          ORDER BY gm.user_id
-          LIMIT 1
-        )
-        WHERE g.created_by IS NULL
-          AND EXISTS (SELECT 1 FROM group_members AS gm WHERE gm.group_id = g.id)
-      `;
-      await sql`
-        INSERT INTO group_members (group_id, user_id, role)
-        SELECT g.id, g.created_by, 'creator'::group_role
-        FROM groups AS g
-        WHERE g.created_by IS NOT NULL
-        ON CONFLICT (group_id, user_id)
-        DO UPDATE SET role = 'creator'::group_role
-      `;
-    }
-    await sql`INSERT INTO drizzle.__drizzle_migrations (hash, created_at) VALUES (${tag}, ${Date.now()})`;
-    console.log(`[pachas] applied migration ${tag}`);
+    console.log(`[pachas] applied SQLite migration ${entry.tag}`);
   }
-  console.log("[pachas] database migrations applied");
+
+  const builtInCategories = [
+    ["General", "🧾", "General"],
+    ["Comida", "🍜", "Food"],
+    ["Supermercado", "🛒", "Groceries"],
+    ["Transporte", "🚕", "Transport"],
+    ["Vivienda", "🏠", "Housing"],
+    ["Suministros", "💡", "Utilities"],
+    ["Ocio", "🎬", "Entertainment"],
+    ["Viajes", "✈️", "Travel"],
+    ["Compras", "🛍️", "Shopping"],
+  ];
+  const findCategory = database.prepare(
+    "SELECT id FROM categories WHERE title = ? ORDER BY id LIMIT 1",
+  );
+  const insertCategory = database.prepare(
+    "INSERT INTO categories (title, icon, position) VALUES (?, ?, ?)",
+  );
+  const insertTranslation = database.prepare(
+    "INSERT INTO category_translations (category_id, locale, title) VALUES (?, 'en', ?) " +
+      "ON CONFLICT (category_id, locale) DO NOTHING",
+  );
+  for (const [position, [title, icon, englishTitle]] of builtInCategories.entries()) {
+    let category = findCategory.get(title);
+    if (!category) {
+      insertCategory.run(title, icon, position);
+      category = { id: Number(database.prepare("SELECT last_insert_rowid() AS id").get().id) };
+    }
+    insertTranslation.run(category.id, englishTitle);
+  }
+
+  console.log(`[pachas] SQLite database ready at ${databasePath}`);
 } finally {
-  await sql.end();
+  database.close();
 }

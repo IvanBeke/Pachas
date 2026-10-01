@@ -1,7 +1,4 @@
-// https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
-  // Auth-gated app with client-side polling: no benefit from SSR,
-  // and prerendering would call /api/* with no database at build time.
   ssr: false,
   devtools: { enabled: false },
   modules: ["@nuxthub/core", "@nuxtjs/i18n"],
@@ -17,17 +14,15 @@ export default defineNuxtConfig({
   },
   hub: {
     db: {
-      dialect: "postgresql",
-      // DB columns are snake_case, code uses camelCase.
+      dialect: "sqlite",
+      driver: "libsql",
       casing: "snake_case",
-      // No database reachable at Docker build time — migrations run from
-      // the container entrypoint instead (see entrypoint.sh).
       applyMigrationsDuringBuild: false,
     },
   },
   css: ["~/assets/style.css"],
   runtimeConfig: {
-    databaseUrl: process.env.DATABASE_URL || "",
+    databasePath: process.env.DATABASE_PATH || "/data/pachas.sqlite",
     sessionSecret: process.env.SESSION_SECRET || "",
     allowRegistration: process.env.ALLOW_REGISTRATION ?? "true",
     cookieSecure: process.env.COOKIE_SECURE ?? "false",
@@ -36,9 +31,6 @@ export default defineNuxtConfig({
   nitro: {
     preset: "node-server",
   },
-  // Applied to every route. The app previously served its HTML with no security
-  // headers at all — the `X-Frame-Options`/CSP seen on error responses come
-  // from Nitro's error page and never applied to the SPA itself.
   routeRules: {
     "/**": {
       headers: {
@@ -48,11 +40,9 @@ export default defineNuxtConfig({
         "content-security-policy": [
           "default-src 'self'",
           "script-src 'self' 'unsafe-inline'",
-          // Vue's runtime and i18n build styles at runtime in dev.
           "style-src 'self' 'unsafe-inline'",
           "img-src 'self' data:",
           "font-src 'self' data:",
-          // The app is API-only; nothing should ever frame it.
           "frame-ancestors 'none'",
           "object-src 'none'",
           "base-uri 'self'",

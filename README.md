@@ -6,8 +6,8 @@ suggestions, an activity feed, recurring expenses, Splitwise CSV import, and
 its own accounts — no external service required. The interface is in Spanish
 or English; the default is **Spanish**. Default currency is EUR.
 
-It's a Nuxt 4 (Vue 3) app backed by a real **PostgreSQL** database,
-both running as Docker Compose services.
+It's a Nuxt 4 (Vue 3) app backed by a local **SQLite** database inside the
+container. Docker Compose persists the database file in a named volume.
 
 ## Features
 
@@ -16,8 +16,8 @@ both running as Docker Compose services.
 - **Five ways to split**: equally, by exact amount, by percentage, by share
   weight, or itemised (assign each line of a bill to whoever had it, with tax
   and tip). Expenses can be edited or deleted afterwards.
-- **Balances** and **settle-up suggestions** — who should pay whom, in the
-  fewest payments. Optional "simplify transfers" per group (see below).
+- **Balances** and **settle-up suggestions** — who should pay whom, with
+  simplified group netting or direct pairwise debts (see below).
 - **Recurring expenses** (weekly / monthly / yearly) with a start date.
 - **Splitwise CSV import** — drop in an export file, match the members and
   categories, and the whole file is imported in one go.
@@ -37,13 +37,14 @@ both running as Docker Compose services.
   chosen and who takes part; the server derives the amounts and rejects
   anything that does not reconcile. Non-finite amounts (`Infinity`, `NaN`) are
   refused outright — they would otherwise make every balance in a group `NaN`.
-- **Authorization** is checked per request. Only the group creator or a site
-  admin can add or remove members, since adding someone grants them the whole
-  expense history. Any member can leave a group; the creator cannot.
+- **Authorization** is checked per request. Group roles are separate from the
+  site-wide admin role. Members cannot leave or be removed while the selected
+  settlement plan still involves them.
 - **Response headers** include a Content-Security-Policy, `X-Frame-Options`,
   `nosniff`, and `Referrer-Policy`. The framework banner is stripped.
 - **The container** runs as an unprivileged user, ships production
-  dependencies only, and the database service publishes no ports.
+  dependencies only, and includes its SQLite runtime—there is no database
+  service to configure or expose.
 
 `security_fixes.md` documents a full security review of the codebase, the
 issues it found, and how each was verified.
@@ -56,8 +57,8 @@ issues it found, and how each was verified.
    cp .env.example .env
    ```
 
-   Edit `.env` and set:
-   - `POSTGRES_PASSWORD` — a password for the database. **Required.**
+   Edit `.env` and set `SESSION_SECRET` to a random value. `DATABASE_PATH` is
+   optional and defaults to `/data/pachas.sqlite` inside the container.
 
 2. From this folder, run:
 
@@ -65,9 +66,8 @@ issues it found, and how each was verified.
    docker compose up -d --build
    ```
 
-   This starts a `db` (Postgres) container and the `pachas` app container. The
-   app waits for the database to be ready, applies any pending schema
-   migrations automatically, then serves — no manual migration step.
+   This starts the app with its SQLite file in the persistent `pachas-data`
+   volume. Schema migrations are applied automatically before the server starts.
 
 3. Open `http://<your-server>:3000` and create the first account. **The first
    account created becomes the admin** — it gets the admin area for managing
@@ -84,14 +84,14 @@ Set in `.env` (used by `compose.yaml`):
 
 | Variable | Description |
 |---|---|
-| `POSTGRES_PASSWORD` | Password for the `pachas` Postgres user/database. Required — the compose file refuses to start without it. |
+| `DATABASE_PATH` | SQLite database path inside the container. Optional; defaults to `/data/pachas.sqlite`. Keep custom paths under `/data`, or mount the custom directory in `compose.yaml`, so the file persists across container replacement. |
 | `SESSION_SECRET` | Secret used to key stored session digests. **Required** — the app refuses to start without it (see note below). Generate one with `openssl rand -hex 32`. |
 
 > **Note on `SESSION_SECRET`:** your browser's session cookie holds a random
 > 32-byte token. The database does **not** store that token — it stores
-> `HMAC-SHA256(SESSION_SECRET, token)`. So a database backup, or access to the
-> `db` container, does not hand over usable session cookies; the digests are
-> useless without the secret in your `.env`.
+> `HMAC-SHA256(SESSION_SECRET, token)`. So a database backup does not hand over
+> usable session cookies; the digests are useless without the secret in your
+> `.env`.
 >
 > Two consequences worth knowing:
 > - Sessions survive restarts and rebuilds, because they live in the database
@@ -110,17 +110,21 @@ Set directly in `compose.yaml` under the `pachas` service:
 ## Data & backups
 
 Everything (users, groups, expenses, settlements, categories, and sessions)
-lives in the `pachas_pachas-pgdata` Docker volume, managed by Postgres. To back
-it up with `pg_dump`:
+lives in `/data/pachas.sqlite` in the `pachas_pachas-data` Docker volume. Stop
+the app briefly before copying the file so SQLite can checkpoint its WAL:
 
 ```bash
-docker compose exec db pg_dump -U pachas pachas > pachas-backup.sql
+docker compose stop pachas
+docker cp pachas:/data/pachas.sqlite ./pachas-backup.sqlite
+docker compose start pachas
 ```
 
-To restore into a fresh database:
+To restore that backup:
 
 ```bash
-cat pachas-backup.sql | docker compose exec -T db psql -U pachas pachas
+docker compose stop pachas
+docker cp ./pachas-backup.sqlite pachas:/data/pachas.sqlite
+docker compose start pachas
 ```
 
 ## Reverse proxy / HTTPS
@@ -129,9 +133,7 @@ To expose Pachas outside your LAN, put it behind a reverse proxy (Caddy,
 Traefik, nginx, or your existing one) that terminates HTTPS, and
 set `COOKIE_SECURE: "true"`. Don't expose port 3000 directly to the internet
 over plain HTTP — login credentials and session cookies would travel
-unencrypted. Only the `pachas` service needs to be reachable; keep `db`
-unpublished (it has no `ports:` mapping by default, so it's only reachable
-from other containers on the compose network).
+ unencrypted. Only the `pachas` service needs to be reachable.
 
 ## Updating
 
@@ -140,7 +142,7 @@ docker compose pull    # if you're pulling a pre-built image
 docker compose up -d --build
 ```
 
-Your data stays in the `pachas_pachas-pgdata` volume across
+Your data stays in the `pachas_pachas-data` volume across
 rebuilds/updates. The app applies pending database migrations on every start,
 so new columns/tables in future versions apply automatically — existing data is
 never dropped.
@@ -170,10 +172,11 @@ docker compose down          # stop and remove the containers
 docker compose down -v       # also delete all stored data — irreversible
 ```
 
+
 ## How it works
 
 - **Backend**: `server/api/` — Nitro server routes. Sessions are token-based
-  (an `app_sessions` table in Postgres, so they survive restarts), and the
+  (an `app_sessions` table in SQLite, so they survive restarts), and the
   stored value is a keyed digest rather than the cookie itself; passwords are
   hashed with `bcryptjs` in the login and register routes.
 - **The server does all the money maths.** The browser is never trusted: the
@@ -190,12 +193,15 @@ docker compose down -v       # also delete all stored data — irreversible
   Nuxt/Vite. It polls the server every few seconds so everyone sees
   roughly-live balances. Each modal owns its form state locally, so
   background refreshes never wipe what you're typing.
-- **Settle-up suggestions**: balances are netted per person, then a greedy
-  algorithm repeatedly matches the largest debtor with the largest creditor,
-  producing at most *n−1* payments regardless of how many expenses exist.
-  Groups can switch this off ("simplify transfers"), which instead walks each
-  debtor down the creditors in turn. Both settle everyone to exactly zero; they
-  differ in *who* pays *whom*, not in how many payments.
+- **Settle-up suggestions**: simplified mode nets the group and suggests
+  debtor-to-creditor transfers that can be allocated along outstanding debt
+  paths, so intermediaries can be netted out. Pairwise mode instead suggests
+  each outstanding debt between the people connected by expense shares.
+  Recorded settlements retain the actual sender/recipient and persist which
+  underlying pairwise debts the payment clears. Members involved in the
+  selected plan cannot leave or be removed until those suggested payments are
+  settled; switching to pairwise mode is blocked if it would involve former
+  members.
 - **CSV import**: a Splitwise export is a file where each member column holds
   that person's *net* balance for the row (the payer's own share is already
   deducted). The importer derives each member's share from the negative
@@ -233,11 +239,11 @@ just those:
 PACHAS_API=http://pachas:3000 docker compose run --rm --no-deps -e PACHAS_API dev pnpm test:api
 ```
 
-The API tests leave their test group and throwaway accounts behind (there is
-no `DELETE /groups/:id` route). Clean up afterwards with:
+Some API contract fixtures and throwaway accounts are intentionally retained.
+Clean up reserved test data afterwards with:
 
 ```bash
-cat scripts/cleanup-test-data.sql | docker compose exec -T db psql -U pachas pachas
+docker compose exec pachas node scripts/cleanup-test-data.mjs
 ```
 
 CI (`.github/workflows/ci.yml`) runs install → `nuxt prepare` → tests →

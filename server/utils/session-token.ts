@@ -8,7 +8,7 @@ import { createHmac } from "node:crypto";
  *
  * Why: the raw token is the bearer credential — the exact string in the
  * browser's cookie. If it were also the primary key in `app_sessions`, then a
- * database backup, a SQL-injection read, or access to the db container would
+ * database backup, a SQL-injection read, or access to the app container would
  * hand over ready-to-use session cookies for every signed-in user, with no
  * cracking required. Keying the stored value with a secret that lives outside
  * the database removes that exposure, and makes rotating `SESSION_SECRET`
@@ -18,7 +18,6 @@ import { createHmac } from "node:crypto";
  * What it buys is "a leaked database is not a leaked session".
  */
 
-/** Throws when no secret is configured. Never falls back to an unkeyed hash. */
 export function requireSessionSecret(secret: string | undefined | null): string {
   const value = (secret ?? "").trim();
   if (!value) {
@@ -30,7 +29,6 @@ export function requireSessionSecret(secret: string | undefined | null): string 
   return value;
 }
 
-/** The value stored in `app_sessions.token` for a given cookie token. */
 export function sessionDigest(token: string, secret: string): string {
   return createHmac("sha256", secret).update(token).digest("hex");
 }

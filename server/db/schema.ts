@@ -1,50 +1,33 @@
 import {
-  bigint,
-  boolean,
-  date,
   index,
   integer,
-  jsonb,
-  numeric,
-  pgTable,
   primaryKey,
-  serial,
+  real,
+  sqliteTable,
   text,
   uniqueIndex,
-  uuid,
-  pgEnum,
-} from "drizzle-orm/pg-core";
+} from "drizzle-orm/sqlite-core";
 import { sql } from "drizzle-orm";
 import { GroupRole } from "../../shared/group-roles";
 
-export const groupRoleEnum = pgEnum("group_role", [
-  GroupRole.Creator,
-  GroupRole.Admin,
-  GroupRole.Member,
-]);
-
-// Drizzle `casing: 'snake_case'` (nuxt.config.ts) maps these camelCase keys
-// to the existing snake_case columns. NUMERIC/BIGINT use number mode to
-// preserve the API contract (plain JS numbers, not strings).
-
-export const users = pgTable("users", {
-  id: uuid("id").primaryKey(),
+export const users = sqliteTable("users", {
+  id: text("id").primaryKey(),
   username: text("username").notNull().unique(),
   name: text("name").notNull(),
   passwordHash: text("password_hash").notNull(),
   role: text("role").notNull().default("user"),
-  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  createdAt: integer("created_at").notNull(),
 });
 
-export const categories = pgTable("categories", {
-  id: serial("id").primaryKey(),
+export const categories = sqliteTable("categories", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
   title: text("title").notNull(),
   icon: text("icon").notNull(),
   position: integer("position").notNull().default(0),
-  createdBy: uuid("created_by").references(() => users.id),
+  createdBy: text("created_by").references(() => users.id),
 });
 
-export const categoryTranslations = pgTable(
+export const categoryTranslations = sqliteTable(
   "category_translations",
   {
     categoryId: integer("category_id")
@@ -56,157 +39,165 @@ export const categoryTranslations = pgTable(
   (t) => [primaryKey({ columns: [t.categoryId, t.locale] })],
 );
 
-export const groups = pgTable("groups", {
-  id: uuid("id").primaryKey(),
+export const groups = sqliteTable("groups", {
+  id: text("id").primaryKey(),
   name: text("name").notNull(),
   emoji: text("emoji"),
   baseCurrency: text("base_currency").notNull(),
-  simplifyTransfers: boolean("simplify_transfers").notNull().default(true),
-  createdBy: uuid("created_by").references(() => users.id),
-  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  simplifyTransfers: integer("simplify_transfers", { mode: "boolean" }).notNull().default(true),
+  createdBy: text("created_by").references(() => users.id),
+  createdAt: integer("created_at").notNull(),
 });
 
-export const groupMembers = pgTable(
+export const groupMembers = sqliteTable(
   "group_members",
   {
-    groupId: uuid("group_id")
+    groupId: text("group_id")
       .notNull()
       .references(() => groups.id, { onDelete: "cascade" }),
-    userId: uuid("user_id")
+    userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    role: groupRoleEnum("role").notNull().default(GroupRole.Member),
+    role: text("role", {
+      enum: [GroupRole.Creator, GroupRole.Admin, GroupRole.Member],
+    })
+      .notNull()
+      .default(GroupRole.Member),
   },
   (t) => [
     primaryKey({ columns: [t.groupId, t.userId] }),
     index("idx_group_members_user").on(t.userId),
     uniqueIndex("idx_group_members_creator")
       .on(t.groupId)
-      .where(sql`${t.role} = 'creator'`),
+      .where(sql.raw(`"role" = 'creator'`)),
   ],
 );
 
-export const expenses = pgTable(
+export const expenses = sqliteTable(
   "expenses",
   {
-    id: uuid("id").primaryKey(),
-    groupId: uuid("group_id")
+    id: text("id").primaryKey(),
+    groupId: text("group_id")
       .notNull()
       .references(() => groups.id, { onDelete: "cascade" }),
     title: text("title").notNull().default(""),
     description: text("description").notNull(),
-    amount: numeric("amount", { precision: 14, scale: 2, mode: "number" }).notNull(),
+    amount: real("amount").notNull(),
     currency: text("currency").notNull(),
-    exchangeRate: numeric("exchange_rate", {
-      precision: 18,
-      scale: 6,
-      mode: "number",
-    })
+    exchangeRate: real("exchange_rate")
       .notNull()
       .default(1),
-    amountBase: numeric("amount_base", {
-      precision: 14,
-      scale: 2,
-      mode: "number",
-    }).notNull(),
-    paidBy: uuid("paid_by")
+    amountBase: real("amount_base").notNull(),
+    paidBy: text("paid_by")
       .notNull()
       .references(() => users.id),
     category: text("category").notNull().default("general"),
-    date: date("date").notNull(),
+    date: text("date").notNull(),
     splitType: text("split_type").notNull(),
-    createdBy: uuid("created_by")
+    createdBy: text("created_by")
       .notNull()
       .references(() => users.id),
-    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+    createdAt: integer("created_at").notNull(),
   },
   (t) => [index("idx_expenses_group").on(t.groupId)],
 );
 
-export const expenseSplits = pgTable(
+export const expenseSplits = sqliteTable(
   "expense_splits",
   {
-    expenseId: uuid("expense_id")
+    expenseId: text("expense_id")
       .notNull()
       .references(() => expenses.id, { onDelete: "cascade" }),
-    userId: uuid("user_id")
+    userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    amount: numeric("amount", { precision: 14, scale: 2, mode: "number" }).notNull(),
+    amount: real("amount").notNull(),
   },
   (t) => [primaryKey({ columns: [t.expenseId, t.userId] })],
 );
 
-export const settlements = pgTable(
+export const settlements = sqliteTable(
   "settlements",
   {
-    id: uuid("id").primaryKey(),
-    groupId: uuid("group_id")
+    id: text("id").primaryKey(),
+    groupId: text("group_id")
       .notNull()
       .references(() => groups.id, { onDelete: "cascade" }),
-    fromUser: uuid("from_user")
+    fromUser: text("from_user")
       .notNull()
       .references(() => users.id),
-    toUser: uuid("to_user")
+    toUser: text("to_user")
       .notNull()
       .references(() => users.id),
-    amount: numeric("amount", { precision: 14, scale: 2, mode: "number" }).notNull(),
+    amount: real("amount").notNull(),
     note: text("note"),
-    createdBy: uuid("created_by")
+    createdBy: text("created_by")
       .notNull()
       .references(() => users.id),
-    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+    createdAt: integer("created_at").notNull(),
   },
   (t) => [index("idx_settlements_group").on(t.groupId)],
 );
 
-export const recurringExpenses = pgTable(
+export const settlementAllocations = sqliteTable(
+  "settlement_allocations",
+  {
+    settlementId: text("settlement_id")
+      .notNull()
+      .references(() => settlements.id, { onDelete: "cascade" }),
+    debtorId: text("debtor_id")
+      .notNull()
+      .references(() => users.id),
+    creditorId: text("creditor_id")
+      .notNull()
+      .references(() => users.id),
+    amount: real("amount").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.settlementId, t.debtorId, t.creditorId] }),
+    index("idx_settlement_allocations_pair").on(t.debtorId, t.creditorId),
+  ],
+);
+
+export const recurringExpenses = sqliteTable(
   "recurring_expenses",
   {
-    id: uuid("id").primaryKey(),
-    groupId: uuid("group_id")
+    id: text("id").primaryKey(),
+    groupId: text("group_id")
       .notNull()
       .references(() => groups.id, { onDelete: "cascade" }),
     title: text("title").notNull().default(""),
     description: text("description").notNull(),
-    amount: numeric("amount", { precision: 14, scale: 2, mode: "number" }).notNull(),
+    amount: real("amount").notNull(),
     currency: text("currency").notNull(),
-    exchangeRate: numeric("exchange_rate", {
-      precision: 18,
-      scale: 6,
-      mode: "number",
-    })
+    exchangeRate: real("exchange_rate")
       .notNull()
       .default(1),
-    amountBase: numeric("amount_base", {
-      precision: 14,
-      scale: 2,
-      mode: "number",
-    }).notNull(),
-    paidBy: uuid("paid_by")
+    amountBase: real("amount_base").notNull(),
+    paidBy: text("paid_by")
       .notNull()
       .references(() => users.id),
     category: text("category").notNull().default("general"),
     splitType: text("split_type").notNull(),
-    splits: jsonb("splits").$type<Record<string, number>>().notNull(),
+    splits: text("splits", { mode: "json" }).$type<Record<string, number>>().notNull(),
     recurrence: text("recurrence").notNull(),
-    startDate: date("start_date").notNull(),
-    createdBy: uuid("created_by")
+    startDate: text("start_date").notNull(),
+    createdBy: text("created_by")
       .notNull()
       .references(() => users.id),
-    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+    createdAt: integer("created_at").notNull(),
   },
   (t) => [index("idx_recurring_expenses_group").on(t.groupId)],
 );
 
-export const appSessions = pgTable(
+export const appSessions = sqliteTable(
   "app_sessions",
   {
     token: text("token").primaryKey(),
-    userId: uuid("user_id")
+    userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    expiresAt: bigint("expires_at", { mode: "number" }).notNull(),
+    expiresAt: integer("expires_at").notNull(),
   },
   (t) => [
     index("idx_app_sessions_user").on(t.userId),

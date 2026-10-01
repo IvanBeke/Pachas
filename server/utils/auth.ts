@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import type { H3Event } from "h3";
 import { and, eq, gt, sql } from "drizzle-orm";
-import { db } from "./client";
+import { runtimeDb as db } from "./client";
 import { appSessions, users } from "../db/schema";
 import {
   requireSessionSecret,
@@ -11,9 +11,6 @@ import {
 const SESSION_COOKIE_BASE = "pachas.sid";
 const THIRTY_DAYS_MS = 1000 * 60 * 60 * 24 * 30;
 
-// Cookie helpers written against the raw Node req/res on the Nitro event.
-// h3's getCookie/setCookie assume an event shape Nitro handlers don't always
-// provide, so parse/serialize the Cookie/Set-Cookie headers directly.
 function parseCookieHeader(
   header: string | undefined,
 ): Record<string, string> {
@@ -24,11 +21,6 @@ function parseCookieHeader(
     if (idx === -1) continue;
     const k = part.slice(0, idx).trim();
     const v = part.slice(idx + 1).trim();
-    // `decodeURIComponent` throws a URIError on a stray `%`, and this runs on
-    // every request that touches the session. An attacker sending
-    // `Cookie: pachas.sid=%` would otherwise turn every authenticated route
-    // into an unhandled 500. A value we cannot decode is simply not a value we
-    // recognise, so keep the raw text and let it fail to match a session.
     if (k && !(k in out)) {
       let decoded = v;
       try {
@@ -122,14 +114,6 @@ function sessionCookieName(): string {
   return cookieSecure() ? `__Host-${SESSION_COOKIE_BASE}` : SESSION_COOKIE_BASE;
 }
 
-/**
- * The value we store in `app_sessions.token` for a given cookie token.
- *
- * Failing hard when SESSION_SECRET is absent is deliberate: silently falling
- * back to an unkeyed hash would quietly restore exactly the weakness the keyed
- * digest exists to remove, and nobody would notice. Same posture as the
- * DATABASE_URL check in client.ts.
- */
 function sessionDigest(token: string): string {
   const secret = requireSessionSecret(
     useRuntimeConfig().sessionSecret || process.env.SESSION_SECRET,
@@ -174,7 +158,6 @@ export async function createSession(
 ): Promise<void> {
   const token = randomBytes(32).toString("hex");
   const expiresAt = Date.now() + THIRTY_DAYS_MS;
-  // Store the digest; the cookie carries the raw token.
   await db.insert(appSessions).values({
     token: sessionDigest(token),
     userId,
@@ -190,9 +173,6 @@ export async function createSession(
 }
 
 export async function destroySession(event: H3Event): Promise<void> {
-  // Read under both names: the live cookie uses the current prefix, but a
-  // session issued before a COOKIE_SECURE flip is still set under the old name
-  // and must be revocable.
   const names = cookieSecure()
     ? [sessionCookieName(), SESSION_COOKIE_BASE]
     : [SESSION_COOKIE_BASE];
@@ -200,13 +180,10 @@ export async function destroySession(event: H3Event): Promise<void> {
     const token = readCookie(event, name);
     if (!token) continue;
     try {
-      // Must digest too, or the row never matches and logging out would fail
-      // to revoke anything.
       await db
         .delete(appSessions)
         .where(eq(appSessions.token, sessionDigest(token)));
     } catch {
-      // best effort
     }
   }
   for (const name of names) removeCookie(event, name, { path: "/" });
