@@ -384,6 +384,7 @@ describe.skipIf(!reachable)("expense deletion authorisation", () => {
   it("serves security headers and hides the framework", async () => {
     const res = await fetch(`${BASE}/`);
     const csp = res.headers.get("content-security-policy") ?? "";
+    expect(csp).toContain("script-src 'self' 'unsafe-inline'");
     expect(csp).toContain("frame-ancestors 'none'");
     expect(csp).toContain("object-src 'none'");
     expect(res.headers.get("x-content-type-options")).toBe("nosniff");

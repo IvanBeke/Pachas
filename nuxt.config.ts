@@ -42,13 +42,12 @@ export default defineNuxtConfig({
   routeRules: {
     "/**": {
       headers: {
-        // No `v-html` anywhere in the app, so nothing user-supplied is ever
-        // parsed as markup. This is defence in depth: if that ever changes, a
-        // stray inline handler has nowhere to run. Nuxt/Vue emit external
-        // scripts and styles, so no 'unsafe-inline' is needed.
+        // Nuxt emits inline import-map and runtime-config scripts in the SPA
+        // shell, so script-src must permit inline scripts for client startup.
+        // Keep user data out of HTML: never use v-html or innerHTML.
         "content-security-policy": [
           "default-src 'self'",
-          "script-src 'self'",
+          "script-src 'self' 'unsafe-inline'",
           // Vue's runtime and i18n build styles at runtime in dev.
           "style-src 'self' 'unsafe-inline'",
           "img-src 'self' data:",
