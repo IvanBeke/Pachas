@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import { db } from "./client";
 import {
   categories,
@@ -12,6 +12,13 @@ import {
   users,
 } from "../db/schema";
 import { publicUser, type DbUser } from "./auth";
+import { GroupRole } from "../../shared/group-roles";
+import { canGroupAction } from "./group-permissions";
+
+export interface GroupMember {
+  userId: string;
+  role: GroupRole;
+}
 
 export interface PublicGroup {
   id: string;
@@ -20,20 +27,22 @@ export interface PublicGroup {
   baseCurrency: string;
   simplifyTransfers: boolean;
   memberIds: string[];
+  members: GroupMember[];
   createdBy: string | null;
   createdAt: number;
 }
 
 type GroupRow = typeof groups.$inferSelect;
 
-function toPublicGroup(row: GroupRow, memberIds: string[]): PublicGroup {
+function toPublicGroup(row: GroupRow, members: GroupMember[]): PublicGroup {
   return {
     id: row.id,
     name: row.name,
     emoji: row.emoji,
     baseCurrency: row.baseCurrency,
     simplifyTransfers: row.simplifyTransfers,
-    memberIds,
+    memberIds: members.map((member) => member.userId),
+    members,
     createdBy: row.createdBy,
     createdAt: row.createdAt,
   };
@@ -41,18 +50,18 @@ function toPublicGroup(row: GroupRow, memberIds: string[]): PublicGroup {
 
 async function membersByGroup(
   gids: string[],
-): Promise<Record<string, string[]>> {
+): Promise<Record<string, GroupMember[]>> {
   if (!gids.length) return {};
   const rows = await db
     .select()
     .from(groupMembers)
     .where(inArray(groupMembers.groupId, gids));
-  const map: Record<string, string[]> = {};
+  const map: Record<string, GroupMember[]> = {};
   gids.forEach((id) => {
     map[id] = [];
   });
   rows.forEach((r) => {
-    (map[r.groupId] ||= []).push(r.userId);
+    (map[r.groupId] ||= []).push({ userId: r.userId, role: r.role });
   });
   return map;
 }
@@ -122,7 +131,11 @@ export async function createGroup(
     for (const uid of members) {
       await tx
         .insert(groupMembers)
-        .values({ groupId: gid, userId: uid })
+        .values({
+          groupId: gid,
+          userId: uid,
+          role: uid === creatorId ? GroupRole.Creator : GroupRole.Member,
+        })
         .onConflictDoNothing();
     }
   });
@@ -132,22 +145,201 @@ export async function createGroup(
 export async function addGroupMember(
   gid: string,
   uid: string,
+  actorId: string,
 ): Promise<PublicGroup | null> {
-  await db
-    .insert(groupMembers)
-    .values({ groupId: gid, userId: uid })
-    .onConflictDoNothing();
+  await db.transaction(async (tx) => {
+    const groupRows = await tx
+      .select()
+      .from(groups)
+      .where(eq(groups.id, gid))
+      .for("update")
+      .limit(1);
+    const row = groupRows[0];
+    if (!row) throw createError({ statusCode: 404, message: "not_found" });
+    const memberRows = await tx
+      .select()
+      .from(groupMembers)
+      .where(eq(groupMembers.groupId, gid));
+    const group = toPublicGroup(
+      row,
+      memberRows.map((member) => ({ userId: member.userId, role: member.role })),
+    );
+    if (!canGroupAction({ id: actorId }, group, "member.add")) {
+      throw createError({ statusCode: 403, message: "forbidden" });
+    }
+    await tx
+      .insert(groupMembers)
+      .values({ groupId: gid, userId: uid, role: GroupRole.Member })
+      .onConflictDoNothing();
+  });
   return getGroupById(gid);
 }
 
 export async function removeGroupMember(
   gid: string,
   uid: string,
+  actorId: string,
 ): Promise<PublicGroup | null> {
-  await db
-    .delete(groupMembers)
-    .where(and(eq(groupMembers.groupId, gid), eq(groupMembers.userId, uid)));
+  await db.transaction(async (tx) => {
+    const groupRows = await tx
+      .select()
+      .from(groups)
+      .where(eq(groups.id, gid))
+      .for("update")
+      .limit(1);
+    const row = groupRows[0];
+    if (!row) throw createError({ statusCode: 404, message: "not_found" });
+    const memberRows = await tx
+      .select()
+      .from(groupMembers)
+      .where(eq(groupMembers.groupId, gid));
+    const group = toPublicGroup(
+      row,
+      memberRows.map((member) => ({ userId: member.userId, role: member.role })),
+    );
+    if (!canGroupAction({ id: actorId }, group, { type: "member.remove", targetUserId: uid })) {
+      if (
+        uid === actorId &&
+        group.members.find((member) => member.userId === actorId)?.role ===
+          GroupRole.Creator
+      ) {
+        throw createError({ statusCode: 400, message: "cannot_remove_self" });
+      }
+      throw createError({ statusCode: 403, message: "forbidden" });
+    }
+    const removed = await tx
+      .delete(groupMembers)
+      .where(
+        and(
+          eq(groupMembers.groupId, gid),
+          eq(groupMembers.userId, uid),
+          ne(groupMembers.role, GroupRole.Creator),
+        ),
+      )
+      .returning({ userId: groupMembers.userId });
+    if (!removed.length) {
+      throw createError({ statusCode: 409, message: "member_changed" });
+    }
+  });
   return getGroupById(gid);
+}
+
+export async function changeGroupMemberRole(
+  gid: string,
+  targetUserId: string,
+  role: GroupRole,
+  actorId: string,
+): Promise<PublicGroup | null> {
+  await db.transaction(async (tx) => {
+    const groupRows = await tx
+      .select()
+      .from(groups)
+      .where(eq(groups.id, gid))
+      .for("update")
+      .limit(1);
+    const row = groupRows[0];
+    if (!row) throw createError({ statusCode: 404, message: "not_found" });
+    const memberRows = await tx
+      .select()
+      .from(groupMembers)
+      .where(eq(groupMembers.groupId, gid));
+    const group = toPublicGroup(
+      row,
+      memberRows.map((member) => ({ userId: member.userId, role: member.role })),
+    );
+    if (
+      !canGroupAction(
+        { id: actorId },
+        group,
+        { type: "member.role.change", targetUserId, role },
+      )
+    ) {
+      throw createError({ statusCode: 403, message: "forbidden" });
+    }
+
+    if (role === GroupRole.Creator) {
+      const currentCreatorId = group.members.find(
+        (member) => member.role === GroupRole.Creator,
+      )?.userId;
+      if (!currentCreatorId) {
+        throw createError({ statusCode: 409, message: "creator_missing" });
+      }
+      const demoted = await tx
+        .update(groupMembers)
+        .set({ role: GroupRole.Admin })
+        .where(
+          and(
+            eq(groupMembers.groupId, gid),
+            eq(groupMembers.userId, currentCreatorId),
+            eq(groupMembers.role, GroupRole.Creator),
+          ),
+        )
+        .returning({ userId: groupMembers.userId });
+      if (!demoted.length) {
+        throw createError({ statusCode: 409, message: "creator_changed" });
+      }
+      const promoted = await tx
+        .update(groupMembers)
+        .set({ role: GroupRole.Creator })
+        .where(
+          and(
+            eq(groupMembers.groupId, gid),
+            eq(groupMembers.userId, targetUserId),
+            ne(groupMembers.role, GroupRole.Creator),
+          ),
+        )
+        .returning({ userId: groupMembers.userId });
+      if (!promoted.length) {
+        throw createError({ statusCode: 404, message: "not_a_member" });
+      }
+      return;
+    }
+
+    const updated = await tx
+      .update(groupMembers)
+      .set({ role })
+      .where(
+        and(
+          eq(groupMembers.groupId, gid),
+          eq(groupMembers.userId, targetUserId),
+          ne(groupMembers.role, GroupRole.Creator),
+        ),
+      )
+      .returning({ userId: groupMembers.userId });
+    if (!updated.length) {
+      throw createError({ statusCode: 409, message: "member_changed" });
+    }
+  });
+  return getGroupById(gid);
+}
+
+export async function deleteGroup(gid: string, actorId: string): Promise<boolean> {
+  return db.transaction(async (tx) => {
+    const groupRows = await tx
+      .select()
+      .from(groups)
+      .where(eq(groups.id, gid))
+      .for("update")
+      .limit(1);
+    const row = groupRows[0];
+    if (!row) return false;
+    const memberRows = await tx
+      .select()
+      .from(groupMembers)
+      .where(eq(groupMembers.groupId, gid));
+    const group = toPublicGroup(
+      row,
+      memberRows.map((member) => ({ userId: member.userId, role: member.role })),
+    );
+    if (!canGroupAction({ id: actorId }, group, "group.delete")) {
+      throw createError({ statusCode: 403, message: "forbidden" });
+    }
+    const deleted = await tx
+      .delete(groups)
+      .where(eq(groups.id, gid))
+      .returning({ id: groups.id });
+    return deleted.length > 0;
+  });
 }
 
 export interface ExpensePayload {
@@ -239,22 +431,33 @@ export async function deleteExpenseIfOwner(
   gid: string,
   eid: string,
   requesterId: string,
-  isAdmin: boolean,
+  canManageAny: boolean,
 ): Promise<boolean> {
-  // Admins bypass the creator filter, matching updateExpenseIfOwner and the
-  // UI, which offers the delete button to admins. The creator filter is what
-  // makes a non-owner get 404 rather than confirming the row exists.
+  // Group creators/admins bypass the creator filter. The filter makes a
+  // non-owner get 404 rather than confirming the row exists.
   const deleted = await db
     .delete(expenses)
     .where(
       and(
         eq(expenses.id, eid),
         eq(expenses.groupId, gid),
-        ...(isAdmin ? [] : [eq(expenses.createdBy, requesterId)]),
+        ...(canManageAny ? [] : [eq(expenses.createdBy, requesterId)]),
       ),
     )
     .returning({ id: expenses.id });
   return deleted.length > 0;
+}
+
+export async function getExpenseOwner(
+  gid: string,
+  eid: string,
+): Promise<string | null> {
+  const row = await db
+    .select({ createdBy: expenses.createdBy })
+    .from(expenses)
+    .where(and(eq(expenses.id, eid), eq(expenses.groupId, gid)))
+    .limit(1);
+  return row[0]?.createdBy ?? null;
 }
 
 export async function updateExpenseIfOwner(
@@ -262,7 +465,7 @@ export async function updateExpenseIfOwner(
   eid: string,
   payload: ExpensePayload,
   requesterId: string,
-  isAdmin: boolean,
+  canManageAny: boolean,
 ): Promise<boolean> {
   // The creator filter is what makes non-owners 404 rather than 403, so a
   // plain member can't probe for the existence of someone else's expense.
@@ -273,7 +476,7 @@ export async function updateExpenseIfOwner(
       and(
         eq(expenses.id, eid),
         eq(expenses.groupId, gid),
-        ...(isAdmin ? [] : [eq(expenses.createdBy, requesterId)]),
+        ...(canManageAny ? [] : [eq(expenses.createdBy, requesterId)]),
       ),
     )
     .limit(1);
@@ -593,6 +796,18 @@ export async function deleteSettlementIfOwner(
   return deleted.length > 0;
 }
 
+export async function getSettlementRecorder(
+  gid: string,
+  sid: string,
+): Promise<string | null> {
+  const row = await db
+    .select({ createdBy: settlements.createdBy })
+    .from(settlements)
+    .where(and(eq(settlements.id, sid), eq(settlements.groupId, gid)))
+    .limit(1);
+  return row[0]?.createdBy ?? null;
+}
+
 export interface RecurringExpensePayload {
   title: string;
   description: string;
@@ -666,7 +881,7 @@ export async function updateRecurringExpense(
   rid: string,
   payload: RecurringExpensePayload,
   requesterId: string,
-  isAdmin: boolean,
+  canManageAny: boolean,
 ): Promise<boolean> {
   const updated = await db
     .update(recurringExpenses)
@@ -688,18 +903,32 @@ export async function updateRecurringExpense(
       and(
         eq(recurringExpenses.id, rid),
         eq(recurringExpenses.groupId, gid),
-        isAdmin ? undefined : eq(recurringExpenses.createdBy, requesterId),
+        canManageAny ? undefined : eq(recurringExpenses.createdBy, requesterId),
       ),
     )
     .returning({ id: recurringExpenses.id });
   return updated.length > 0;
 }
 
+export async function getRecurringExpenseOwner(
+  gid: string,
+  rid: string,
+): Promise<string | null> {
+  const row = await db
+    .select({ createdBy: recurringExpenses.createdBy })
+    .from(recurringExpenses)
+    .where(
+      and(eq(recurringExpenses.id, rid), eq(recurringExpenses.groupId, gid)),
+    )
+    .limit(1);
+  return row[0]?.createdBy ?? null;
+}
+
 export async function deleteRecurringExpense(
   gid: string,
   rid: string,
   requesterId: string,
-  isAdmin: boolean,
+  canManageAny: boolean,
 ): Promise<boolean> {
   const deleted = await db
     .delete(recurringExpenses)
@@ -707,7 +936,7 @@ export async function deleteRecurringExpense(
       and(
         eq(recurringExpenses.id, rid),
         eq(recurringExpenses.groupId, gid),
-        isAdmin ? undefined : eq(recurringExpenses.createdBy, requesterId),
+        canManageAny ? undefined : eq(recurringExpenses.createdBy, requesterId),
       ),
     )
     .returning({ id: recurringExpenses.id });

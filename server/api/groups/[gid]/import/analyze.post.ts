@@ -1,5 +1,6 @@
 import { requireUser } from "../../../../utils/auth";
 import { requireMember } from "../../../../utils/groups";
+import { canGroupAction } from "../../../../utils/group-permissions";
 import { analyzeSplitwiseCsv } from "../../../../utils/splitwise";
 import { readImportRequest } from "../../../../utils/import-input";
 
@@ -12,6 +13,9 @@ export default defineEventHandler(async (event) => {
   const me = await requireUser(event);
   const gid = String(getRouterParam(event, "gid"));
   const group = await requireMember(gid, me.id);
+  if (!canGroupAction(me, group, "import")) {
+    throw createError({ statusCode: 403, message: "forbidden" });
+  }
   const { text } = await readImportRequest(event);
 
   const analysis = analyzeSplitwiseCsv(text, group.memberIds.length);

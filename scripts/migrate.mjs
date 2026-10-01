@@ -19,6 +19,7 @@ if (!DATABASE_URL) {
 // 42P07 duplicate_table/duplicate_index, 42701 duplicate_column,
 // 42710 duplicate_object (constraints).
 const TOLERATED = new Set(["42P07", "42701", "42710"]);
+const GROUP_ROLE_BACKFILL = "0006_blue_hellfire_club";
 
 const dir = join(dirname(fileURLToPath(import.meta.url)), "..", "migrations", "postgresql");
 const journal = JSON.parse(
@@ -62,6 +63,32 @@ try {
         if (e?.code && TOLERATED.has(String(e.code))) continue;
         throw e;
       }
+    }
+    // Data backfills live beside their schema version without hand-editing
+    // Drizzle-generated SQL. This one maps existing group creators to their
+    // new creator membership role (and repairs any legacy groups missing that
+    // membership row) exactly once, when the role column is introduced.
+    if (tag === GROUP_ROLE_BACKFILL) {
+      await sql`
+        UPDATE groups AS g
+        SET created_by = (
+          SELECT gm.user_id
+          FROM group_members AS gm
+          WHERE gm.group_id = g.id
+          ORDER BY gm.user_id
+          LIMIT 1
+        )
+        WHERE g.created_by IS NULL
+          AND EXISTS (SELECT 1 FROM group_members AS gm WHERE gm.group_id = g.id)
+      `;
+      await sql`
+        INSERT INTO group_members (group_id, user_id, role)
+        SELECT g.id, g.created_by, 'creator'::group_role
+        FROM groups AS g
+        WHERE g.created_by IS NOT NULL
+        ON CONFLICT (group_id, user_id)
+        DO UPDATE SET role = 'creator'::group_role
+      `;
     }
     await sql`INSERT INTO drizzle.__drizzle_migrations (hash, created_at) VALUES (${tag}, ${Date.now()})`;
     console.log(`[pachas] applied migration ${tag}`);

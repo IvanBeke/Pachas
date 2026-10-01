@@ -1,5 +1,6 @@
 import { requireUser } from "../../../../utils/auth";
 import { requireMember, createSettlement, getBalances } from "../../../../utils/groups";
+import { canGroupAction } from "../../../../utils/group-permissions";
 
 /** Half a cent, matching the float guards in the balance maths. */
 const EPSILON = 0.005;
@@ -18,6 +19,9 @@ export default defineEventHandler(async (event) => {
   }
   if (group.memberIds.indexOf(b.from) === -1 || group.memberIds.indexOf(b.to) === -1) {
     throw createError({ statusCode: 400, message: "Both people must be group members." });
+  }
+  if (!canGroupAction(me, group, { type: "settlement.create", debtorId: b.from })) {
+    throw createError({ statusCode: 403, message: "forbidden" });
   }
 
   // The payer of the settlement (b.from) must currently owe the receiver

@@ -43,6 +43,13 @@
       "when": 1790632379235,
       "tag": "0005_graceful_sue_storm",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1790878314254,
+      "tag": "0006_blue_hellfire_club",
+      "breakpoints": true
     }
   ]
 }

@@ -1,12 +1,13 @@
 import { requireUser } from "../../utils/auth";
 import { countExpenses, requireMember, updateGroup } from "../../utils/groups";
+import { canGroupAction } from "../../utils/group-permissions";
 
-/** Only the group creator or a site admin may edit group settings. */
+/** Only the group's creator or an admin may edit group settings. */
 export default defineEventHandler(async (event) => {
   const me = await requireUser(event);
   const gid = String(getRouterParam(event, "gid"));
   const group = await requireMember(gid, me.id);
-  if (group.createdBy !== me.id && me.role !== "admin") {
+  if (!canGroupAction(me, group, "group.settings.update")) {
     throw createError({ statusCode: 403, message: "forbidden" });
   }
   const b = await readBody(event).catch(() => ({}));

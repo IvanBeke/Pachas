@@ -5,6 +5,7 @@ import { useProfiles } from "~/composables/useGroups";
 import AddMemberModal from "~/components/AddMemberModal.vue";
 import ImportModal from "~/components/ImportModal.vue";
 import LanguageSwitcher from "~/components/LanguageSwitcher.vue";
+import { GroupRole } from "../../../../shared/group-roles";
 
 const { t } = useI18n();
 
@@ -21,6 +22,7 @@ const showAddMember = ref(false);
 const showImport = ref(false);
 const confirmRemoveMember = ref<string | null>(null);
 const confirmLeave = ref(false);
+const confirmDeleteGroup = ref(false);
 const leaving = ref(false);
 const hasExpenses = ref(false);
 
@@ -42,16 +44,29 @@ function showToast(msg: string) {
 
 const canManage = computed(() => {
   if (!group.value || !user.value) return false;
-  return group.value.createdBy === user.value.id || user.value.role === "admin";
+  const role = group.value.members.find((member) => member.userId === user.value?.id)?.role;
+  return role === GroupRole.Creator || role === GroupRole.Admin;
 });
 
-/** A plain member can leave; the creator cannot, or the group is orphaned. */
+const isCreator = computed(() =>
+  !!group.value &&
+  !!user.value &&
+  group.value.members.some(
+    (member) => member.userId === user.value?.id && member.role === GroupRole.Creator,
+  ),
+);
+
+function roleOf(uid: string): GroupRole | null {
+  return group.value?.members.find((member) => member.userId === uid)?.role ?? null;
+}
+
+/** Non-creators may leave; the creator must transfer ownership first. */
 const canLeave = computed(
   () =>
     !!group.value &&
     !!user.value &&
     group.value.memberIds.includes(user.value.id) &&
-    group.value.createdBy !== user.value.id,
+    !isCreator.value,
 );
 
 async function leaveGroup() {
@@ -123,6 +138,42 @@ async function removeMember(uid: string) {
     await load();
   } catch (e: unknown) {
     showToast((e as Error)?.message || t("group.couldntRemove"));
+  }
+}
+
+async function changeMemberRole(uid: string, event: Event) {
+  if (!group.value) return;
+  const select = event.target as HTMLSelectElement;
+  const role = select.value as GroupRole;
+  if (
+    role === GroupRole.Creator &&
+    !window.confirm(
+      t("groupEdit.transferCreatorConfirm", { name: nameOf(uid, user.value) }),
+    )
+  ) {
+    select.value = roleOf(uid) || GroupRole.Member;
+    return;
+  }
+  try {
+    await $fetch(`/api/groups/${gid}/members/${uid}`, {
+      method: "PATCH",
+      body: { role },
+    });
+    await load();
+  } catch (e: unknown) {
+    select.value = roleOf(uid) || GroupRole.Member;
+    showToast((e as Error)?.message || t("groupEdit.roleFailed"));
+  }
+}
+
+async function deleteGroup() {
+  try {
+    await $fetch(`/api/groups/${gid}`, { method: "DELETE" });
+    await navigateTo("/");
+  } catch (e: unknown) {
+    showToast((e as Error)?.message || t("groupEdit.deleteFailed"));
+  } finally {
+    confirmDeleteGroup.value = false;
   }
 }
 
@@ -215,7 +266,7 @@ onMounted(async () => {
           {{ t("groupEdit.members") }}
         </div>
         <div class="card">
-          <div v-if="canManage" style="margin-bottom: 12px">
+          <div style="margin-bottom: 12px">
             <button class="btn btn-sm" @click="showAddMember = true">
               {{ t("group.addPerson") }}
             </button>
@@ -228,22 +279,31 @@ onMounted(async () => {
           >
             <span class="name">{{ nameOf(id, user) }}</span>
             <span
-              v-if="id === group.createdBy"
+              v-if="roleOf(id)"
               style="font-size: 12px; color: var(--ink-faint)"
             >
-              {{ t("groupEdit.creator") }}
-            </span>
-            <span v-else-if="id === user?.id" style="font-size: 12px; color: var(--ink-faint)">
-              {{ t("groupEdit.you") }}
+              {{ t(`groupEdit.role_${roleOf(id)}`) }}
             </span>
             <button
-              v-if="canManage && id !== user?.id"
+              v-if="canManage && roleOf(id) !== GroupRole.Creator && id !== user?.id"
               class="btn btn-sm btn-ghost"
               style="color: var(--negative)"
               @click="confirmRemoveMember = id"
             >
               {{ t("group.remove") }}
             </button>
+            <select
+              v-if="canManage && roleOf(id) !== GroupRole.Creator"
+              :value="roleOf(id) || GroupRole.Member"
+              class="role-select"
+              @change="changeMemberRole(id, $event)"
+            >
+              <option :value="GroupRole.Member">{{ t("groupEdit.role_member") }}</option>
+              <option :value="GroupRole.Admin">{{ t("groupEdit.role_admin") }}</option>
+              <option v-if="isCreator" :value="GroupRole.Creator">
+                {{ t("groupEdit.role_creator") }}
+              </option>
+            </select>
           </div>
           <div
             v-if="canLeave"
@@ -261,6 +321,7 @@ onMounted(async () => {
         </div>
 
         <!-- Import -->
+        <template v-if="canManage">
         <div class="section-label" style="margin-top: 22px">
           {{ t("groupEdit.import") }}
         </div>
@@ -270,6 +331,21 @@ onMounted(async () => {
           </p>
           <button class="btn btn-accent" @click="showImport = true">
             {{ t("group.importSplitwise") }}
+          </button>
+        </div>
+        </template>
+
+        <div v-if="isCreator" class="card danger-card">
+          <div class="section-label">{{ t("groupEdit.deleteGroup") }}</div>
+          <p style="font-size: 13px; color: var(--ink-soft); margin: 0 0 12px">
+            {{ t("groupEdit.deleteGroupHint") }}
+          </p>
+          <button
+            class="btn btn-ghost"
+            style="color: var(--negative)"
+            @click="confirmDeleteGroup = true"
+          >
+            {{ t("groupEdit.deleteGroup") }}
           </button>
         </div>
       </template>
@@ -353,6 +429,29 @@ onMounted(async () => {
         </div>
       </div>
     </div>
+
+    <div v-if="confirmDeleteGroup" class="overlay" @click.self="confirmDeleteGroup = false">
+      <div class="sheet-wrap">
+        <div class="sheet">
+          <h2>{{ t("groupEdit.deleteGroup") }}</h2>
+          <p style="font-size: 14px; color: var(--ink-soft)">
+            {{ t("groupEdit.deleteGroupConfirm", { name: group?.name }) }}
+          </p>
+          <div class="modal-actions">
+            <button class="btn" @click="confirmDeleteGroup = false">
+              {{ t("group.cancel") }}
+            </button>
+            <button
+              class="btn btn-accent"
+              style="flex: 1; background: var(--negative)"
+              @click="deleteGroup"
+            >
+              {{ t("groupEdit.deleteGroup") }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -371,5 +470,14 @@ onMounted(async () => {
   font-size: 13px;
   color: var(--ink-soft);
   margin-bottom: 16px;
+}
+.role-select {
+  width: auto;
+  min-width: 96px;
+  padding: 6px 8px;
+}
+.danger-card {
+  margin-top: 22px;
+  border-color: var(--negative);
 }
 </style>

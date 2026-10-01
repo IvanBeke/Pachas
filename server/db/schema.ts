@@ -10,8 +10,18 @@ import {
   primaryKey,
   serial,
   text,
+  uniqueIndex,
   uuid,
+  pgEnum,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { GroupRole } from "../../shared/group-roles";
+
+export const groupRoleEnum = pgEnum("group_role", [
+  GroupRole.Creator,
+  GroupRole.Admin,
+  GroupRole.Member,
+]);
 
 // Drizzle `casing: 'snake_case'` (nuxt.config.ts) maps these camelCase keys
 // to the existing snake_case columns. NUMERIC/BIGINT use number mode to
@@ -65,10 +75,14 @@ export const groupMembers = pgTable(
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    role: groupRoleEnum("role").notNull().default(GroupRole.Member),
   },
   (t) => [
     primaryKey({ columns: [t.groupId, t.userId] }),
     index("idx_group_members_user").on(t.userId),
+    uniqueIndex("idx_group_members_creator")
+      .on(t.groupId)
+      .where(sql`${t.role} = 'creator'`),
   ],
 );
 

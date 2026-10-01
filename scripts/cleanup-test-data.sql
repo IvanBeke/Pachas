@@ -11,7 +11,8 @@
 
 BEGIN;
 
--- Expenses first; expense_splits cascade on delete.
+-- Prune matching expenses first; expense_splits cascade on delete. The group
+-- delete route now cascades, but this cleanup also covers older test leftovers.
 DELETE FROM expenses
  WHERE group_id IN (SELECT id FROM groups WHERE name LIKE '\_\_%');
 

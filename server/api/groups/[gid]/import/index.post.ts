@@ -1,6 +1,7 @@
 import { createError } from "h3";
 import { requireUser } from "../../../../utils/auth";
 import { requireMember, importExpenses, type ImportRow } from "../../../../utils/groups";
+import { canGroupAction } from "../../../../utils/group-permissions";
 import { analyzeSplitwiseCsv } from "../../../../utils/splitwise";
 import { readImportRequest } from "../../../../utils/import-input";
 
@@ -13,6 +14,9 @@ export default defineEventHandler(async (event) => {
   const me = await requireUser(event);
   const gid = String(getRouterParam(event, "gid"));
   const group = await requireMember(gid, me.id);
+  if (!canGroupAction(me, group, "import")) {
+    throw createError({ statusCode: 403, message: "forbidden" });
+  }
   // One read of the body: the file and both mapping fields arrive together, and
   // re-reading would re-parse the whole multipart payload each time.
   const { text, fields } = await readImportRequest(event);

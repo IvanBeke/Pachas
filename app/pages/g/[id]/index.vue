@@ -16,6 +16,7 @@ import SettleModal from "~/components/SettleModal.vue";
 import AddMemberModal from "~/components/AddMemberModal.vue";
 import RecurringModal from "~/components/RecurringModal.vue";
 import LanguageSwitcher from "~/components/LanguageSwitcher.vue";
+import { GroupRole } from "../../../../shared/group-roles";
 
 const { t } = useI18n();
 
@@ -79,6 +80,21 @@ function expSubtitle(e: Expense): string | null {
 function balanceOf(id: string): number {
   return balances.value.find((b) => b.memberId === id)?.amount ?? 0;
 }
+
+function roleOf(id: string): GroupRole | null {
+  return group.value?.members.find((member) => member.userId === id)?.role ?? null;
+}
+
+const isGroupElevated = computed(() => {
+  const role = user.value ? roleOf(user.value.id) : null;
+  return role === GroupRole.Creator || role === GroupRole.Admin;
+});
+
+const visibleTransfers = computed(() =>
+  isGroupElevated.value
+    ? transfers.value
+    : transfers.value.filter((transfer) => transfer.from === user.value?.id),
+);
 
 const activity = computed(() => {
   const items: { type: string; ts: number; data: unknown }[] = [];
@@ -395,14 +411,14 @@ onMounted(async () => {
                     </template>
                   </div>
                   <button
-                    v-if="e.createdBy === user.id || user.role === 'admin'"
+                    v-if="e.createdBy === user.id || isGroupElevated"
                     class="expense-edit"
                     @click="openEditExpense(e)"
                   >
                     {{ t("group.edit") }}
                   </button>
                   <button
-                    v-if="e.createdBy === user.id || user.role === 'admin'"
+                    v-if="e.createdBy === user.id || isGroupElevated"
                     class="expense-del"
                     @click="delExpense(e.id)"
                   >
@@ -455,16 +471,16 @@ onMounted(async () => {
             {{ t("group.suggestedSettlements") }}
           </div>
           <div
-            v-if="!transfers.length"
+            v-if="!visibleTransfers.length"
             class="empty"
             style="padding: 30px 10px"
           >
             <span class="icon">✅</span>
-            <p>{{ t("group.everyoneSettled") }}</p>
+            <p>{{ t(isGroupElevated ? "group.everyoneSettled" : "group.noDebtsToSettle") }}</p>
           </div>
           <div v-else>
             <div
-              v-for="(t2, i) in transfers"
+              v-for="(t2, i) in visibleTransfers"
               :key="i"
               class="settle-suggest"
             >
@@ -544,9 +560,8 @@ onMounted(async () => {
                     {{ timeAgo((it.data as never as { createdAt: number }).createdAt || 0, t) }}
                     <template
                       v-if="
-                        (it.data as never as { createdBy: string }).createdBy ===
-                          user.id ||
-                        user.role === 'admin'
+                         (it.data as never as { createdBy: string }).createdBy ===
+                         user.id
                       "
                     >
                       ·
@@ -600,14 +615,14 @@ onMounted(async () => {
               </span>
               <span class="amt" style="font-size: 12.5px">{{ r.startDate }}</span>
               <button
-                v-if="r.createdBy === user.id || user.role === 'admin'"
+                v-if="r.createdBy === user.id || isGroupElevated"
                 class="btn btn-sm"
                 @click="editRecurring(r)"
               >
                 {{ t("group.edit") }}
               </button>
               <button
-                v-if="r.createdBy === user.id || user.role === 'admin'"
+                v-if="r.createdBy === user.id || isGroupElevated"
                 class="btn btn-sm btn-ghost"
                 style="color: var(--negative)"
                 @click="delRecurring(r.id)"

@@ -111,8 +111,10 @@ Two consequences for contributors:
 - Migrations are generated, never hand-written: change `server/db/schema.ts`,
   then run `nuxt db generate`. Seed data belongs in the migration that owns the
   table, not a new one.
-- Access to a group is a `group_members` row and nothing more — there are no
-  per-group roles. `users.role` is a site-wide flag only.
+- Group access and authorization use `group_members.role` and
+  `server/utils/group-permissions.ts`. Group roles (`creator`, `admin`,
+  `member`) are separate from the site-wide `users.role`; never use app-admin
+  status to grant group permissions.
 - Render category titles through `translatedTitle(cat, locale)`, and never use
   `v-html` for user-supplied data such as display names.
 - Do not hardcode secrets.

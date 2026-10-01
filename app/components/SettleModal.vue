@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { fmt, type Group, type Profile } from "~/utils/format";
 import { useProfiles } from "~/composables/useGroups";
+import { GroupRole } from "../../shared/group-roles";
 
 const { t } = useI18n();
 
@@ -15,7 +16,18 @@ const emit = defineEmits<{ close: []; saved: []; error: [msg: string] }>();
 
 const { nameOf } = useProfiles();
 const memberIds = computed(() => props.group.memberIds || []);
-const from = ref(props.preset?.from || props.me.id);
+const role = computed(
+  () => props.group.members.find((member) => member.userId === props.me.id)?.role,
+);
+const isGroupElevated = computed(
+  () => role.value === GroupRole.Creator || role.value === GroupRole.Admin,
+);
+const fromOptions = computed(() =>
+  isGroupElevated.value ? memberIds.value : [props.me.id],
+);
+const from = ref(
+  isGroupElevated.value ? props.preset?.from || props.me.id : props.me.id,
+);
 const to = ref(
   props.preset?.to ||
     (memberIds.value.filter((id) => id !== props.me.id)[0] || ""),
@@ -69,8 +81,8 @@ async function submit() {
         <div class="row2">
           <div class="field">
             <label>{{ t("settleModal.from") }}</label>
-            <select v-model="from">
-              <option v-for="id in memberIds" :key="id" :value="id">
+            <select v-model="from" :disabled="!isGroupElevated">
+              <option v-for="id in fromOptions" :key="id" :value="id">
                 {{ nameOf(id, me) }}
               </option>
             </select>

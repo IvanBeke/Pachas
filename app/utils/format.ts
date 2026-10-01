@@ -204,6 +204,7 @@ export interface Group {
   baseCurrency: string;
   simplifyTransfers: boolean;
   memberIds: string[];
+  members: { userId: string; role: import("../../shared/group-roles").GroupRole }[];
   createdBy: string;
   createdAt: number;
 }

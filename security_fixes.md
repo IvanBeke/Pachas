@@ -167,6 +167,15 @@ group's full expense history — so the asymmetry was backwards.
 - [x] UI already agreed: the add button in `g/[id]/edit.vue` was gated on the
       same `canManage` computed, so no change was needed there.
 
+### Current group-role policy
+
+The product later intentionally changed the membership policy: all group
+members may add people, and newly added users receive the `member` role. This
+supersedes the earlier creator/admin-only decision above. The disclosure risk
+remains; it is accepted as a product requirement. Group authorization now uses
+the `group_members.role` enum and `server/utils/group-permissions.ts`, separate
+from site-wide app-admin status.
+
 ### 7. `baseCurrency` editable after expenses exist
 
 `amountBase` is denormalized into every expense row, so switching a group's

@@ -52,7 +52,14 @@ async function api(cookie: string, method: string, path: string, body?: unknown)
     headers: { "Content-Type": "application/json", cookie },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
-  return { status: res.status, json: (await res.json()) as Record<string, unknown> };
+  const text = await res.text();
+  let json: Record<string, unknown>;
+  try {
+    json = JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    json = text as unknown as Record<string, unknown>;
+  }
+  return { status: res.status, json };
 }
 
 type ExpenseRow = {
@@ -69,9 +76,9 @@ describe.skipIf(!reachable)("server-authoritative split computation", () => {
   let memberB: string;
 
   beforeAll(async () => {
-    const admin = await login("admin", "admin123");
-    cookie = admin.cookie;
-    memberA = admin.me.id;
+    const creator = await register(`own${RUN}splitcreator`, "split-pass-123");
+    cookie = creator.cookie;
+    memberA = creator.me.id;
 
     const found = await api(cookie, "GET", "/api/users/search?q=be");
     const other = (found.json as { id: string }[])[0];
@@ -88,10 +95,8 @@ describe.skipIf(!reachable)("server-authoritative split computation", () => {
 
   afterAll(async () => {
     if (!cookie || !gid) return;
-    // Delete the group the way the app does: expenses first, then the group.
-    // (There is no DELETE /groups/:id route, so clean up the rows directly
-    // is not possible from here — the group is named so it can be found and
-    // pruned. See AGENTS.md for the manual cleanup query.)
+    // These older split-contract groups are pruned by the standardized
+    // cleanup query after the API suite; see AGENTS.md.
     for (const e of (await listExpenses())) {
       await api(cookie, "DELETE", `/api/groups/${gid}/expenses/${e.id}`);
     }
@@ -223,8 +228,7 @@ describe.skipIf(!reachable)("expense deletion authorisation", () => {
     otherCookie = b.cookie;
     otherId = b.me.id;
 
-    const admin = await login("admin", "admin123");
-    const created = await api(admin.cookie, "POST", "/api/groups", {
+    const created = await api(ownerCookie, "POST", "/api/groups", {
       name: `__delete_contract__${RUN}`,
       baseCurrency: "EUR",
       memberIds: [ownerId, otherId],
@@ -261,6 +265,22 @@ describe.skipIf(!reachable)("expense deletion authorisation", () => {
     return String(r.json.id);
   };
 
+  const createOtherOwned = async (title: string) => {
+    const r = await api(otherCookie, "POST", `/api/groups/${gid}/expenses`, {
+      title,
+      amount: 10,
+      amountBase: 10,
+      currency: "EUR",
+      paidBy: otherId,
+      category: "1",
+      date: "2026-09-28",
+      splitType: "equal",
+      participants: [ownerId, otherId],
+    });
+    expect(r.status).toBe(200);
+    return String(r.json.id);
+  };
+
   it("lets the creator delete their own expense", async () => {
     const id = await createOwned("own delete");
     const r = await api(ownerCookie, "DELETE", `/api/groups/${gid}/expenses/${id}`);
@@ -268,11 +288,9 @@ describe.skipIf(!reachable)("expense deletion authorisation", () => {
     expect((await listExpenses(ownerCookie)).some((e) => e.id === id)).toBe(false);
   });
 
-  it("lets a site admin delete another member's expense", async () => {
-    // The UI shows admins the delete button, so the server must honour it.
-    const id = await createOwned("admin deletes this");
-    const admin = await login("admin", "admin123");
-    const r = await api(admin.cookie, "DELETE", `/api/groups/${gid}/expenses/${id}`);
+  it("lets the group creator delete another member's expense", async () => {
+    const id = await createOtherOwned("creator deletes this");
+    const r = await api(ownerCookie, "DELETE", `/api/groups/${gid}/expenses/${id}`);
     expect(r.status).toBe(200);
     expect((await listExpenses(ownerCookie)).some((e) => e.id === id)).toBe(false);
   });
@@ -410,10 +428,7 @@ describe.skipIf(!reachable)("expense deletion authorisation", () => {
     expect(r.status).toBe(400);
   });
 
-  it("restricts adding a member to the group creator or an admin", async () => {
-    // Addition grants read access to the group's whole expense history, so it
-    // is creator/admin only — matching removal. Any member could previously add
-    // a stranger and then read everything.
+  it("lets any group member add another member with the member role", async () => {
     const outsider = await register(`oth${RUN}add`, "add-pass-123");
 
     // A group owned by `owner`, with `other` as an ordinary member.
@@ -424,14 +439,16 @@ describe.skipIf(!reachable)("expense deletion authorisation", () => {
     });
     const addGid = String(created.json.id);
 
-    // `other` is a plain member, not the creator.
+    // `other` is a plain member, not the creator, and may still add someone.
     const asMember = await api(
       otherCookie,
       "POST",
       `/api/groups/${addGid}/members`,
       { userId: outsider.me.id },
     );
-    expect(asMember.status).toBe(403);
+    expect(asMember.status).toBe(200);
+    expect((asMember.json as { members: { userId: string; role: string }[] }).members)
+      .toContainEqual({ userId: outsider.me.id, role: "member" });
 
     // The creator may.
     const asCreator = await api(
@@ -443,7 +460,7 @@ describe.skipIf(!reachable)("expense deletion authorisation", () => {
     expect(asCreator.status).toBe(200);
   });
 
-  it("lets a plain member leave a group but not the creator", async () => {
+  it("lets a member leave but prevents removing other members or the creator", async () => {
     const created = await api(ownerCookie, "POST", "/api/groups", {
       name: `${GROUP_NAME}leave`,
       baseCurrency: "EUR",
@@ -451,8 +468,14 @@ describe.skipIf(!reachable)("expense deletion authorisation", () => {
     });
     const leaveGid = String(created.json.id);
 
-    // A plain member removing themselves must work — they were previously
-    // stuck until the creator intervened.
+    const removeOther = await api(
+      otherCookie,
+      "DELETE",
+      `/api/groups/${leaveGid}/members/${ownerId}`,
+    );
+    expect(removeOther.status).toBe(403);
+
+    // A plain member may leave themselves.
     const self = await api(
       otherCookie,
       "DELETE",
@@ -530,22 +553,282 @@ describe.skipIf(!reachable)("expense deletion authorisation", () => {
     expect(r.status).toBe(404);
   });
 
-  it("does not let an admin delete across groups", async () => {
-    // The override is scoped by group id, not a blanket bypass.
+  it("does not let a group creator act across groups", async () => {
     const id = await createOwned("scoped");
     const other = await api(ownerCookie, "POST", "/api/groups", {
       name: `__delete_elsewhere__${RUN}`,
       baseCurrency: "EUR",
       memberIds: [ownerId],
     });
-    const admin = await login("admin", "admin123");
-    const r = await api(admin.cookie, "DELETE",
+    const r = await api(ownerCookie, "DELETE",
       `/api/groups/${other.json.id as string}/expenses/${id}`);
-    // The admin isn't a member of that other group, so the membership check
-    // rejects them before the owner filter is even reached. Either status is
-    // a correct refusal; what matters is the expense survives.
+    // This user created the first group but isn't a member of the other one,
+    // so the membership check rejects the cross-group request.
     expect([403, 404]).toContain(r.status);
     expect((await listExpenses(ownerCookie)).some((e) => e.id === id)).toBe(true);
     await api(ownerCookie, "DELETE", `/api/groups/${gid}/expenses/${id}`);
+  });
+});
+
+describe.skipIf(!reachable)("group role authorisation", () => {
+  let creatorCookie: string;
+  let memberCookie: string;
+  let adminCookie: string;
+  let candidateCookie: string;
+  let outsiderCookie: string;
+  let unaffiliatedCookie: string;
+  let creatorId: string;
+  let memberId: string;
+  let adminId: string;
+  let candidateId: string;
+  let outsiderId: string;
+  let gid: string;
+
+  beforeAll(async () => {
+    const creator = await register(`own${RUN}rolecreator`, "creator-pass-1");
+    const member = await register(`oth${RUN}rolemember`, "member-pass-1");
+    const admin = await register(`own${RUN}roleadmin`, "admin-pass-1");
+    const candidate = await register(`oth${RUN}rolecandidate`, "candidate-pass-1");
+    const outsider = await register(`own${RUN}roleoutsider`, "outsider-pass-1");
+    const unaffiliated = await register(`oth${RUN}roleunaffiliated`, "unaffiliated-pass-1");
+    creatorCookie = creator.cookie;
+    creatorId = creator.me.id;
+    memberCookie = member.cookie;
+    memberId = member.me.id;
+    adminCookie = admin.cookie;
+    adminId = admin.me.id;
+    candidateCookie = candidate.cookie;
+    candidateId = candidate.me.id;
+    outsiderCookie = outsider.cookie;
+    outsiderId = outsider.me.id;
+    unaffiliatedCookie = unaffiliated.cookie;
+
+    const created = await api(creatorCookie, "POST", "/api/groups", {
+      name: `__roles_contract__${RUN}`,
+      baseCurrency: "EUR",
+      memberIds: [memberId, adminId, candidateId],
+    });
+    gid = String(created.json.id);
+    const promoted = await api(
+      creatorCookie,
+      "PATCH",
+      `/api/groups/${gid}/members/${adminId}`,
+      { role: "admin" },
+    );
+    expect(promoted.status).toBe(200);
+  });
+
+  afterAll(async () => {
+    if (!creatorCookie || !gid) return;
+    const group = await api(creatorCookie, "GET", `/api/groups/${gid}`);
+    if (group.status === 200) {
+      await api(creatorCookie, "DELETE", `/api/groups/${gid}`);
+    }
+  });
+
+  const expenseInput = (title: string, paidBy = creatorId) => ({
+    title,
+    amount: 20,
+    amountBase: 20,
+    currency: "EUR",
+    exchangeRate: 1,
+    paidBy,
+    category: "1",
+    date: "2026-09-28",
+    splitType: "equal",
+    participants: [creatorId, memberId],
+  });
+
+  it("assigns creator/member roles during group creation", async () => {
+    const result = await api(creatorCookie, "GET", `/api/groups/${gid}`);
+    const group = result.json as {
+      createdBy: string;
+      members: { userId: string; role: string }[];
+    };
+    expect(group.members).toContainEqual({ userId: creatorId, role: "creator" });
+    expect(group.members).toContainEqual({ userId: memberId, role: "member" });
+    expect(group.members).toContainEqual({ userId: adminId, role: "admin" });
+    expect(group.createdBy).toBe(creatorId);
+  });
+
+  it("allows members to add members, always with the member role", async () => {
+    const added = await api(
+      memberCookie,
+      "POST",
+      `/api/groups/${gid}/members`,
+      { userId: outsiderId, role: "admin" },
+    );
+    expect(added.status).toBe(200);
+    expect((added.json as { members: { userId: string; role: string }[] }).members)
+      .toContainEqual({ userId: outsiderId, role: "member" });
+  });
+
+  it("requires group membership before group-level actions", async () => {
+    expect((await api(unaffiliatedCookie, "GET", `/api/groups/${gid}`)).status).toBe(403);
+    expect((await api(unaffiliatedCookie, "PATCH", `/api/groups/${gid}`, { name: "forged" })).status)
+      .toBe(403);
+    expect((await api(unaffiliatedCookie, "DELETE", `/api/groups/${gid}`)).status).toBe(403);
+  });
+
+  it("allows only creator/admin to change settings and import", async () => {
+    expect((await api(memberCookie, "PATCH", `/api/groups/${gid}`, { name: "nope" })).status)
+      .toBe(403);
+    expect((await api(memberCookie, "POST", `/api/groups/${gid}/import/analyze`)).status)
+      .toBe(403);
+    expect((await api(adminCookie, "PATCH", `/api/groups/${gid}`, { name: "role admin" })).status)
+      .toBe(200);
+  });
+
+  it("lets admins promote non-creators but not transfer the creator role", async () => {
+    const promote = await api(
+      adminCookie,
+      "PATCH",
+      `/api/groups/${gid}/members/${candidateId}`,
+      { role: "admin" },
+    );
+    expect(promote.status).toBe(200);
+    expect((promote.json as { members: { userId: string; role: string }[] }).members)
+      .toContainEqual({ userId: candidateId, role: "admin" });
+
+    const transfer = await api(
+      adminCookie,
+      "PATCH",
+      `/api/groups/${gid}/members/${candidateId}`,
+      { role: "creator" },
+    );
+    expect(transfer.status).toBe(403);
+  });
+
+  it("limits expense edits/deletes to their creator, group admin, or group creator", async () => {
+    const created = await api(
+      memberCookie,
+      "POST",
+      `/api/groups/${gid}/expenses`,
+      expenseInput("member-owned"),
+    );
+    expect(created.status).toBe(200);
+    const eid = String(created.json.id);
+
+    expect((await api(memberCookie, "PATCH", `/api/groups/${gid}/expenses/${eid}`, expenseInput("member-edit"))).status)
+      .toBe(200);
+
+    const createdByMember = await api(
+      memberCookie,
+      "POST",
+      `/api/groups/${gid}/expenses`,
+      expenseInput("another-member-owned"),
+    );
+    const otherEid = String(createdByMember.json.id);
+    expect((await api(adminCookie, "PATCH", `/api/groups/${gid}/expenses/${otherEid}`, expenseInput("admin-edit"))).status)
+      .toBe(200);
+
+    const ownedByCreator = await api(
+      creatorCookie,
+      "POST",
+      `/api/groups/${gid}/expenses`,
+      expenseInput("creator-owned"),
+    );
+    const creatorEid = String(ownedByCreator.json.id);
+    expect((await api(memberCookie, "PATCH", `/api/groups/${gid}/expenses/${creatorEid}`, expenseInput("forbidden-edit"))).status)
+      .toBe(404);
+    expect((await api(memberCookie, "DELETE", `/api/groups/${gid}/expenses/${creatorEid}`)).status)
+      .toBe(404);
+    expect((await api(creatorCookie, "DELETE", `/api/groups/${gid}/expenses/${creatorEid}`)).status)
+      .toBe(200);
+  });
+
+  it("lets members settle only their own debts, while admins can settle for anyone", async () => {
+    const seed = await api(
+      creatorCookie,
+      "POST",
+      `/api/groups/${gid}/expenses`,
+      expenseInput("settlement-debt"),
+    );
+    expect(seed.status).toBe(200);
+
+    const ownDebt = await api(memberCookie, "POST", `/api/groups/${gid}/settlements`, {
+      from: memberId,
+      to: creatorId,
+    });
+    expect(ownDebt.status, JSON.stringify(ownDebt.json)).toBe(200);
+
+    const anotherDebt = await api(
+      creatorCookie,
+      "POST",
+      `/api/groups/${gid}/expenses`,
+      expenseInput("admin-settlement-debt"),
+    );
+    expect(anotherDebt.status).toBe(200);
+    const adminSettlement = await api(adminCookie, "POST", `/api/groups/${gid}/settlements`, {
+      from: memberId,
+      to: creatorId,
+    });
+    expect(adminSettlement.status).toBe(200);
+
+    const forgedDebtor = await api(memberCookie, "POST", `/api/groups/${gid}/settlements`, {
+      from: creatorId,
+      to: memberId,
+    });
+    expect(forgedDebtor.status).toBe(403);
+  });
+
+  it("applies the same ownership rules to recurring expenses", async () => {
+    const recurringInput = (title: string) => ({
+      ...expenseInput(title),
+      recurrence: "month",
+      startDate: "2026-09-28",
+    });
+    const own = await api(
+      memberCookie,
+      "POST",
+      `/api/groups/${gid}/recurring`,
+      recurringInput("member recurring"),
+    );
+    expect(own.status).toBe(200);
+
+    const theirs = await api(
+      creatorCookie,
+      "POST",
+      `/api/groups/${gid}/recurring`,
+      recurringInput("creator recurring"),
+    );
+    expect(theirs.status).toBe(200);
+    const rid = String(theirs.json);
+    expect((await api(memberCookie, "DELETE", `/api/groups/${gid}/recurring/${rid}`)).status)
+      .toBe(404);
+    expect((await api(adminCookie, "DELETE", `/api/groups/${gid}/recurring/${rid}`)).status)
+      .toBe(200);
+  });
+
+  it("allows member self-leave but not removing other members", async () => {
+    expect((await api(memberCookie, "DELETE", `/api/groups/${gid}/members/${candidateId}`)).status)
+      .toBe(403);
+    expect((await api(adminCookie, "DELETE", `/api/groups/${gid}/members/${creatorId}`)).status)
+      .toBe(403);
+    expect((await api(creatorCookie, "DELETE", `/api/groups/${gid}/members/${creatorId}`)).status)
+      .toBe(400);
+    expect((await api(memberCookie, "DELETE", `/api/groups/${gid}/members/${memberId}`)).status)
+      .toBe(200);
+  });
+
+  it("transfers creator role atomically and reserves group deletion for the creator", async () => {
+    const transfer = await api(
+      creatorCookie,
+      "PATCH",
+      `/api/groups/${gid}/members/${candidateId}`,
+      { role: "creator" },
+    );
+    expect(transfer.status).toBe(200);
+    const transferredGroup = transfer.json as {
+      createdBy: string;
+      members: { userId: string; role: string }[];
+    };
+    expect(transferredGroup.createdBy).toBe(creatorId);
+    expect(transferredGroup.members).toContainEqual({ userId: candidateId, role: "creator" });
+    expect(transferredGroup.members).toContainEqual({ userId: creatorId, role: "admin" });
+
+    expect((await api(creatorCookie, "DELETE", `/api/groups/${gid}`)).status).toBe(403);
+    expect((await api(adminCookie, "DELETE", `/api/groups/${gid}`)).status).toBe(403);
+    expect((await api(candidateCookie, "DELETE", `/api/groups/${gid}`)).status).toBe(200);
   });
 });
