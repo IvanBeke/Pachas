@@ -1,17 +1,9 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { computeSplits, round2, splitsToInputValues, type SplitType } from "../app/utils/splits";
 
-/**
- * Contract tests: the server must treat the client as untrusted and never
- * accept client-computed amounts. These exercise the real route handlers.
- *
- * The group is created per run from real users (membership is validated
- * against real rows), so the suite is self-contained and repeatable.
- */
 const BASE = process.env.PACHAS_API ?? "http://localhost:3000";
 const GROUP_NAME = "__contract__";
 
-/** Skip the whole suite when there is no server to talk to (e.g. in CI). */
 const reachable = await fetch(`${BASE}/api/health`)
   .then((r) => r.ok)
   .catch(() => false);
@@ -29,7 +21,6 @@ async function login(username: string, password: string) {
   };
 }
 
-/** Unique-per-run suffix so repeated runs never collide on usernames. */
 const RUN = `${Date.now().toString(36)}${Math.floor(Math.random() * 1e4).toString(36)}`;
 
 async function register(username: string, password: string) {
@@ -77,13 +68,10 @@ describe.skipIf(!reachable)("server-authoritative split computation", () => {
 
   beforeAll(async () => {
     const creator = await register(`own${RUN}splitcreator`, "split-pass-123");
+    const member = await register(`oth${RUN}splitmember`, "split-pass-456");
     cookie = creator.cookie;
     memberA = creator.me.id;
-
-    const found = await api(cookie, "GET", "/api/users/search?q=be");
-    const other = (found.json as { id: string }[])[0];
-    if (!other) throw new Error("no second user available for the contract test");
-    memberB = other.id;
+    memberB = member.me.id;
 
     const created = await api(cookie, "POST", "/api/groups", {
       name: GROUP_NAME,
@@ -95,14 +83,11 @@ describe.skipIf(!reachable)("server-authoritative split computation", () => {
 
   afterAll(async () => {
     if (!cookie || !gid) return;
-    // These older split-contract groups are pruned by the standardized
-    // cleanup query after the API suite; see AGENTS.md.
     for (const e of (await listExpenses())) {
       await api(cookie, "DELETE", `/api/groups/${gid}/expenses/${e.id}`);
     }
   });
 
-  /** The body the client sends: a selection, never the amounts. */
   const selection = (over: Record<string, unknown> = {}) => ({
     title: "contract",
     amount: 30,
@@ -131,7 +116,6 @@ describe.skipIf(!reachable)("server-authoritative split computation", () => {
   });
 
   it("ignores client-supplied splits and recomputes them", async () => {
-    // A tampered client claims one person owes everything.
     const r = await api(
       cookie,
       "POST",
@@ -181,7 +165,6 @@ describe.skipIf(!reachable)("server-authoritative split computation", () => {
   });
 
   it("the client preview and the stored result agree", async () => {
-    // Same shared code on both sides, so what the user saw is what is saved.
     const input = {
       splitType: "percent" as SplitType,
       amountBase: 30,
@@ -196,14 +179,11 @@ describe.skipIf(!reachable)("server-authoritative split computation", () => {
       selection({ title: "percent preview", splitType: "percent", values: input.values }));
     expect(r.status).toBe(200);
 
-    // The list is date-descending, so find the row by title rather than index.
     const row = await byTitle("percent preview");
     expect(row?.splits).toEqual(preview.ok ? preview.splits : {});
   });
 
   it("percent edit pre-fill reconstructs valid percentages", async () => {
-    // The bug this guards: a 50/50 split of 30 is stored as 15/15, and pasting
-    // those into percent inputs renders "15%" and fails the form's own check.
     const pct = splitsToInputValues({ [memberA]: 15, [memberB]: 15 }, 30, "percent");
     expect(Object.values(pct).reduce((x, y) => x + y, 0)).toBeCloseTo(100, 1);
   });
@@ -217,10 +197,6 @@ describe.skipIf(!reachable)("expense deletion authorisation", () => {
   let gid: string;
 
   beforeAll(async () => {
-    // Two freshly registered plain users, so "owner" and "other" are not
-    // admins and the only admin in play is the one logging in as admin.
-    // Registering keeps the suite self-contained instead of depending on
-    // whatever accounts happen to exist.
     const a = await register(`own${RUN}`, "owner-pass-1");
     ownerCookie = a.cookie;
     ownerId = a.me.id;
@@ -248,7 +224,6 @@ describe.skipIf(!reachable)("expense deletion authorisation", () => {
     return r.json as unknown as ExpenseRow[];
   };
 
-  /** Create an expense owned by `ownerId`, via that user's own session. */
   const createOwned = async (title: string) => {
     const r = await api(ownerCookie, "POST", `/api/groups/${gid}/expenses`, {
       title,
@@ -298,7 +273,6 @@ describe.skipIf(!reachable)("expense deletion authorisation", () => {
   it("stops a plain member deleting someone else's expense", async () => {
     const id = await createOwned("not yours");
     const r = await api(otherCookie, "DELETE", `/api/groups/${gid}/expenses/${id}`);
-    // 404 rather than 403, so the response doesn't confirm the row exists.
     expect(r.status).toBe(404);
     expect((await listExpenses(ownerCookie)).some((e) => e.id === id)).toBe(true);
     await api(ownerCookie, "DELETE", `/api/groups/${gid}/expenses/${id}`);
@@ -321,16 +295,13 @@ describe.skipIf(!reachable)("expense deletion authorisation", () => {
   });
 
   it("issues a random bearer cookie and revokes it on logout", async () => {
-    // The cookie is the raw 32-byte token, never the digest we store.
     const session = await register(`own${RUN}sess`, "sess-pass-123");
     const token = session.cookie.split("=")[1] ?? "";
     expect(token).toMatch(/^[0-9a-f]{64}$/);
 
-    // Authenticates.
     const me = await api(session.cookie, "GET", "/api/me");
     expect(me.status).toBe(200);
 
-    // A tampered cookie must not authenticate.
     const forged = await api(
       `pachas.sid=${token.slice(0, 63)}f`,
       "GET",
@@ -338,10 +309,6 @@ describe.skipIf(!reachable)("expense deletion authorisation", () => {
     );
     expect(forged.status).toBe(401);
 
-    // Logout must actually delete the row. If `destroySession` forgot to
-    // digest the token, the delete would match nothing, the row would
-    // survive, and replaying the captured cookie would still authenticate —
-    // the exact bug this test exists to catch.
     const out = await api(session.cookie, "POST", "/api/logout");
     expect(out.status).toBe(200);
 
@@ -350,9 +317,6 @@ describe.skipIf(!reachable)("expense deletion authorisation", () => {
   });
 
   it("treats a malformed percent-encoded cookie as absent, not a crash", async () => {
-    // `decodeURIComponent("%")` throws a URIError. This ran inside the session
-    // lookup on every request, so `Cookie: pachas.sid=%` turned every
-    // authenticated route into an unhandled 500 — unauthenticated, one request.
     for (const bad of ["%", "%zz", "abc%"]) {
       const r = await api(`pachas.sid=${bad}`, "GET", "/api/me");
       expect(r.status, `cookie value ${JSON.stringify(bad)}`).toBe(401);
@@ -360,14 +324,6 @@ describe.skipIf(!reachable)("expense deletion authorisation", () => {
   });
 
   it("rate limits repeated failed logins", async () => {
-    // The DoS finding: bcryptjs is pure JS, so each synchronous compare blocked
-    // the event loop ~48ms. With no limiter, ~20 req/s from one connection
-    // saturated the server.
-    //
-    // Deliberately stops at the per-account limit (10) rather than running
-    // enough attempts to saturate the per-IP bucket — the limiter is process
-    // state shared by the whole suite, so overshooting would lock out every
-    // later login in this run and in the next few.
     const username = `own${RUN}brute`;
     let sawRateLimit = false;
     for (let i = 0; i < 15; i++) {
@@ -386,10 +342,6 @@ describe.skipIf(!reachable)("expense deletion authorisation", () => {
   });
 
   it("does not rate limit a successful login on a fresh account", async () => {
-    // Guards the other half of the design: only failures are recorded, so a
-    // legitimate user signing in repeatedly — which is exactly what this suite
-    // does — never exhausts a bucket. A regression that counted successes would
-    // make the suite self-throttle.
     const username = `own${RUN}ok`;
     const created = await register(username, "repeat-pass-123");
     expect(created.cookie.length).toBeGreaterThan(0);
@@ -408,15 +360,10 @@ describe.skipIf(!reachable)("expense deletion authorisation", () => {
     expect(res.headers.get("x-content-type-options")).toBe("nosniff");
     expect(res.headers.get("x-frame-options")).toBe("DENY");
     expect(res.headers.get("referrer-policy")).toBe("no-referrer");
-    // Empty header removes the value rather than advertising the framework.
     expect(res.headers.get("x-powered-by")).toBeFalsy();
   });
 
   it("rejects a poisoned amount instead of writing NaN to the ledger", async () => {
-    // The integrity finding: `amount: 1e400` is `Infinity`, which passed the
-    // `!amount || amount <= 0` guard, produced `{Infinity, NaN}` splits, and
-    // then defeated the reconciliation check because every comparison against
-    // `NaN` is false.
     const r = await api(ownerCookie, "POST", `/api/groups/${gid}/expenses`, {
       title: "Poison",
       amount: "1e400",
@@ -431,7 +378,6 @@ describe.skipIf(!reachable)("expense deletion authorisation", () => {
   it("lets any group member add another member with the member role", async () => {
     const outsider = await register(`oth${RUN}add`, "add-pass-123");
 
-    // A group owned by `owner`, with `other` as an ordinary member.
     const created = await api(ownerCookie, "POST", "/api/groups", {
       name: `${GROUP_NAME}add`,
       baseCurrency: "EUR",
@@ -439,7 +385,6 @@ describe.skipIf(!reachable)("expense deletion authorisation", () => {
     });
     const addGid = String(created.json.id);
 
-    // `other` is a plain member, not the creator, and may still add someone.
     const asMember = await api(
       otherCookie,
       "POST",
@@ -450,7 +395,6 @@ describe.skipIf(!reachable)("expense deletion authorisation", () => {
     expect((asMember.json as { members: { userId: string; role: string }[] }).members)
       .toContainEqual({ userId: outsider.me.id, role: "member" });
 
-    // The creator may.
     const asCreator = await api(
       ownerCookie,
       "POST",
@@ -475,7 +419,6 @@ describe.skipIf(!reachable)("expense deletion authorisation", () => {
     );
     expect(removeOther.status).toBe(403);
 
-    // A plain member may leave themselves.
     const self = await api(
       otherCookie,
       "DELETE",
@@ -483,7 +426,6 @@ describe.skipIf(!reachable)("expense deletion authorisation", () => {
     );
     expect(self.status).toBe(200);
 
-    // The creator still cannot, or the group would be unadministrable.
     const creatorOut = await api(
       ownerCookie,
       "DELETE",
@@ -493,8 +435,6 @@ describe.skipIf(!reachable)("expense deletion authorisation", () => {
   });
 
   it("freezes the base currency once the group has expenses", async () => {
-    // `amountBase` is denormalised into every expense row, so switching
-    // currency would silently reinterpret the whole ledger with no conversion.
     const created = await api(ownerCookie, "POST", "/api/groups", {
       name: `${GROUP_NAME}ccy`,
       baseCurrency: "EUR",
@@ -502,7 +442,6 @@ describe.skipIf(!reachable)("expense deletion authorisation", () => {
     });
     const ccyGid = String(created.json.id);
 
-    // Before any expense, changing it is allowed.
     const early = await api(ownerCookie, "PATCH", `/api/groups/${ccyGid}`, {
       baseCurrency: "USD",
     });
@@ -525,10 +464,6 @@ describe.skipIf(!reachable)("expense deletion authorisation", () => {
   });
 
   it("does not let a wildcard query dump the user directory", async () => {
-    // The query was passed into ILIKE unescaped, so wildcards became patterns.
-    // These are two-character queries, which clears the minimum-length check —
-    // a one-character `%` is rejected as too short and never reaches ILIKE, so
-    // testing only that would prove nothing about the escaping.
     for (const q of ["%25%25", "__", "_%"]) {
       const r = await api(ownerCookie, "GET", `/api/users/search?q=${q}`);
       expect(r.status, `q=${q}`).toBe(200);
@@ -538,12 +473,10 @@ describe.skipIf(!reachable)("expense deletion authorisation", () => {
       ).toBe(0);
     }
 
-    // Too short to search on.
     const short = await api(ownerCookie, "GET", "/api/users/search?q=a");
     expect(Array.isArray(short.json) ? short.json.length : 0).toBe(0);
 
-    // A real prefix still works, so the fix did not break the feature.
-    const real = await api(ownerCookie, "GET", "/api/users/search?q=be");
+    const real = await api(ownerCookie, "GET", "/api/users/search?q=oth");
     expect(Array.isArray(real.json) ? real.json.length : 0).toBeGreaterThan(0);
   });
 
@@ -562,8 +495,6 @@ describe.skipIf(!reachable)("expense deletion authorisation", () => {
     });
     const r = await api(ownerCookie, "DELETE",
       `/api/groups/${other.json.id as string}/expenses/${id}`);
-    // This user created the first group but isn't a member of the other one,
-    // so the membership check rejects the cross-group request.
     expect([403, 404]).toContain(r.status);
     expect((await listExpenses(ownerCookie)).some((e) => e.id === id)).toBe(true);
     await api(ownerCookie, "DELETE", `/api/groups/${gid}/expenses/${id}`);
@@ -626,7 +557,11 @@ describe.skipIf(!reachable)("group role authorisation", () => {
     }
   });
 
-  const expenseInput = (title: string, paidBy = creatorId) => ({
+  const expenseInput = (
+    title: string,
+    paidBy = creatorId,
+    participants = [creatorId, memberId],
+  ) => ({
     title,
     amount: 20,
     amountBase: 20,
@@ -636,8 +571,38 @@ describe.skipIf(!reachable)("group role authorisation", () => {
     category: "1",
     date: "2026-09-28",
     splitType: "equal",
-    participants: [creatorId, memberId],
+    participants,
   });
+
+  async function createChainGroup(name: string, simplifyTransfers: boolean) {
+    const created = await api(creatorCookie, "POST", "/api/groups", {
+      name: `${name}${RUN}`,
+      baseCurrency: "EUR",
+      memberIds: [adminId, memberId],
+    });
+    expect(created.status).toBe(200);
+    const chainGid = String(created.json.id);
+    const settings = await api(creatorCookie, "PATCH", `/api/groups/${chainGid}`, {
+      name: `${name}${RUN}`,
+      simplifyTransfers,
+    });
+    expect(settings.status).toBe(200);
+    const first = await api(
+      creatorCookie,
+      "POST",
+      `/api/groups/${chainGid}/expenses`,
+      expenseInput("A pays for B", creatorId, [creatorId, adminId]),
+    );
+    expect(first.status).toBe(200);
+    const second = await api(
+      adminCookie,
+      "POST",
+      `/api/groups/${chainGid}/expenses`,
+      expenseInput("B pays for C", adminId, [adminId, memberId]),
+    );
+    expect(second.status).toBe(200);
+    return chainGid;
+  }
 
   it("assigns creator/member roles during group creation", async () => {
     const result = await api(creatorCookie, "GET", `/api/groups/${gid}`);
@@ -809,6 +774,89 @@ describe.skipIf(!reachable)("group role authorisation", () => {
       .toBe(400);
     expect((await api(memberCookie, "DELETE", `/api/groups/${gid}/members/${memberId}`)).status)
       .toBe(200);
+  });
+
+  it("lets a net-zero intermediary leave in simplified mode, then allocates C-to-A across the chain", async () => {
+    const chainGid = await createChainGroup("__net_chain__", true);
+    const plan = await api(creatorCookie, "GET", `/api/groups/${chainGid}/settlements/plan`);
+    expect(plan.json.transfers).toEqual([
+      { from: memberId, to: creatorId, amount: 10 },
+    ]);
+
+    const leave = await api(adminCookie, "DELETE", `/api/groups/${chainGid}/members/${adminId}`);
+    expect(leave.status).toBe(200);
+    const blockedModeSwitch = await api(
+      creatorCookie,
+      "PATCH",
+      `/api/groups/${chainGid}`,
+      { name: `__net_chain__${RUN}`, simplifyTransfers: false },
+    );
+    expect(blockedModeSwitch.status).toBe(409);
+    expect(blockedModeSwitch.json.message).toBe("pairwise_plan_includes_former_members");
+
+    const payment = await api(
+      memberCookie,
+      "POST",
+      `/api/groups/${chainGid}/settlements`,
+      { from: memberId, to: creatorId },
+    );
+    expect(payment.status, JSON.stringify(payment.json)).toBe(200);
+    const settledPlan = await api(
+      creatorCookie,
+      "GET",
+      `/api/groups/${chainGid}/settlements/plan`,
+    );
+    expect(settledPlan.json.transfers).toEqual([]);
+    expect(settledPlan.json.balances).toEqual(
+      expect.arrayContaining([
+        { memberId: creatorId, amount: 0 },
+        { memberId: adminId, amount: 0 },
+        { memberId: memberId, amount: 0 },
+      ]),
+    );
+    const deletePayment = await api(
+      memberCookie,
+      "DELETE",
+      `/api/groups/${chainGid}/settlements/${String(payment.json.id)}`,
+    );
+    expect(deletePayment.status).toBe(200);
+    const restoredPlan = await api(
+      creatorCookie,
+      "GET",
+      `/api/groups/${chainGid}/settlements/plan`,
+    );
+    expect(restoredPlan.json.transfers).toEqual([
+      { from: memberId, to: creatorId, amount: 10 },
+    ]);
+    await api(creatorCookie, "DELETE", `/api/groups/${chainGid}`);
+  });
+
+  it("blocks leave and removal when pairwise suggestions involve the member", async () => {
+    const chainGid = await createChainGroup("__pair_chain__", false);
+    const plan = await api(creatorCookie, "GET", `/api/groups/${chainGid}/settlements/plan`);
+    expect(plan.json.transfers).toHaveLength(2);
+    expect(plan.json.transfers).toEqual(
+      expect.arrayContaining([
+        { from: adminId, to: creatorId, amount: 10 },
+        { from: memberId, to: adminId, amount: 10 },
+      ]),
+    );
+
+    const selfLeave = await api(
+      adminCookie,
+      "DELETE",
+      `/api/groups/${chainGid}/members/${adminId}`,
+    );
+    expect(selfLeave.status).toBe(409);
+    expect(selfLeave.json.message).toBe("member_has_outstanding_payments");
+    const adminRemoval = await api(
+      creatorCookie,
+      "DELETE",
+      `/api/groups/${chainGid}/members/${adminId}`,
+    );
+    expect(adminRemoval.status).toBe(409);
+    expect(adminRemoval.json.message).toBe("member_has_outstanding_payments");
+    await api(creatorCookie, "DELETE", `/api/groups/${chainGid}`);
   });
 
   it("transfers creator role atomically and reserves group deletion for the creator", async () => {

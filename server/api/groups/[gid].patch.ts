@@ -1,8 +1,7 @@
 import { requireUser } from "../../utils/auth";
-import { countExpenses, requireMember, updateGroup } from "../../utils/groups";
+import { requireMember, updateGroup } from "../../utils/groups";
 import { canGroupAction } from "../../utils/group-permissions";
 
-/** Only the group's creator or an admin may edit group settings. */
 export default defineEventHandler(async (event) => {
   const me = await requireUser(event);
   const gid = String(getRouterParam(event, "gid"));
@@ -22,20 +21,10 @@ export default defineEventHandler(async (event) => {
   // `amountBase` is denormalised into every expense row, so changing the base
   // currency after expenses exist would silently reinterpret the whole
   // historical ledger with no conversion applied. Frozen once money is in.
-  if (baseCurrency !== group.baseCurrency) {
-    const count = await countExpenses(gid);
-    if (count > 0) {
-      throw createError({
-        statusCode: 409,
-        message:
-          "The base currency cannot be changed once the group has expenses.",
-      });
-    }
-  }
   const simplifyTransfers =
     typeof b.simplifyTransfers === "boolean"
       ? b.simplifyTransfers
       : group.simplifyTransfers;
-  await updateGroup(gid, { name, emoji, baseCurrency, simplifyTransfers });
+  await updateGroup(gid, me.id, { name, emoji, baseCurrency, simplifyTransfers });
   return { ok: true };
 });

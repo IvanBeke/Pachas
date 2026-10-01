@@ -46,9 +46,6 @@ container. Docker Compose persists the database file in a named volume.
   dependencies only, and includes its SQLite runtime—there is no database
   service to configure or expose.
 
-`security_fixes.md` documents a full security review of the codebase, the
-issues it found, and how each was verified.
-
 ## Quick start
 
 1. Copy the env template and fill it in:

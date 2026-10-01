@@ -28,7 +28,6 @@ export default defineEventHandler(async (event) => {
     eid,
     payload,
     me.id,
-    canGroupAction(me, group, "expense.manage.any"),
   );
   if (!ok) {
     throw createError({ statusCode: 404, message: "Expense not found." });

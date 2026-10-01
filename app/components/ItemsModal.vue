@@ -1,12 +1,11 @@
 <script setup lang="ts">
 import {
   fmt,
-  itemsTotals,
-  type ExpenseItem,
   type ItemsData,
   type Profile,
 } from "~/utils/format";
 import { useProfiles } from "~/composables/useGroups";
+import { itemsTotals, type ExpenseItem } from "~/utils/splits";
 
 const { t } = useI18n();
 
@@ -28,7 +27,6 @@ const emit = defineEmits<{
 
 const { nameOf } = useProfiles();
 
-// Local draft — parent state untouched until Done.
 const rows = ref<DraftItem[]>(
   props.initial.items.length
     ? props.initial.items.map((it) => ({
@@ -56,8 +54,6 @@ const grandTotal = computed(() =>
   ) / 100,
 );
 
-// Per-item shares aligned with memberIds (0 for excluded members),
-// penny remainder folded into the last enabled share.
 function sharesFor(it: DraftItem): number[] {
   const shares = props.memberIds.map(() => 0);
   if (!it.enabled) return shares;
@@ -274,7 +270,6 @@ function done() {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
-/* Hide number-input spinners (price fields are typed, not stepped). */
 .cell-input[type="number"] {
   -moz-appearance: textfield;
   appearance: textfield;

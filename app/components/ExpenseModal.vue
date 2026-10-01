@@ -3,7 +3,6 @@ import {
   CURRENCIES,
   fmt,
   todayStr,
-  itemsTotals,
   translatedTitle,
   type Category,
   type ItemsData,
@@ -11,7 +10,7 @@ import {
   type Profile,
 } from "~/utils/format";
 import { useProfiles } from "~/composables/useGroups";
-import { computeSplits, splitsToInputValues } from "~/utils/splits";
+import { computeSplits, itemsTotals, splitsToInputValues } from "~/utils/splits";
 import ItemsModal from "~/components/ItemsModal.vue";
 
 const { t, locale } = useI18n();
@@ -40,14 +39,11 @@ onMounted(async () => {
   try {
     categories.value = await $fetch<Category[]>("/api/categories");
   } catch {
-    // keep fallback icons
   }
 });
 
 const { nameOf } = useProfiles();
 
-// Local form state — lives only in this component, so background polling
-// of the expense list can never wipe what the user is typing.
 const title = ref("");
 const description = ref("");
 const amount = ref("");
@@ -57,7 +53,6 @@ const paidBy = ref(props.me.id);
 const category = ref("general");
 const date = ref(todayStr());
 
-// Categories come from the server (admin-managed).
 const categories = ref<Category[]>([]);
 const categoryIcon = (id: string): string =>
   categories.value.find((c) => String(c.id) === id)?.icon ?? "🧾";
@@ -68,13 +63,10 @@ const recurrence = ref<"week" | "month" | "year">("month");
 const startDate = ref(todayStr());
 const participants = ref<string[]>([...(props.group.memberIds || [])]);
 const splitValues = ref<Record<string, number>>({});
-// Items-split state (splitType === "items"). Amount is derived from these.
 const items = ref<ItemsData>({ items: [], tax: 0, tipPercent: 0 });
 const showItems = ref(false);
 const showCur = ref(false);
 
-// Pre-fill the form when editing an existing expense. Declared after every
-// ref it touches, since `immediate` runs the callback synchronously.
 watch(
   () => props.initial,
   (val) => {
@@ -94,22 +86,16 @@ watch(
       | "shares"
       | "items";
     participants.value = Object.keys(val.splits);
-    // Only `exact` stores the numbers the user typed. For `percent` the DB
-    // holds the resulting amounts, so convert back to percentages — pasting
-    // amounts straight in would render "2.05%" and fail the 100% check.
     splitValues.value = splitsToInputValues(
       val.splits,
       val.amountBase,
       splitType.value,
     );
-    // Items payloads are stored as JSON in `description` — restore them so
-    // the items editor opens pre-filled instead of empty.
     if (splitType.value === "items") {
       try {
         const parsed = JSON.parse(val.description) as ItemsData;
         if (parsed && Array.isArray(parsed.items)) items.value = parsed;
       } catch {
-        // not a valid items payload — leave the editor empty
       }
     }
   },
@@ -140,8 +126,6 @@ function splitDefault(id: string): number {
   return isChecked(id) ? 1 : 0;
 }
 
-// Always the input value — defaults are pre-filled on select, never
-// substituted at read time.
 function splitVal(id: string): number {
   return splitValues.value[id] ?? 0;
 }
@@ -200,7 +184,6 @@ const remainOk = computed(() => {
 
 function setSplitType(s: typeof splitType.value) {
   splitType.value = s;
-  // Auto-complete starting values for every participant.
   const next: Record<string, number> = {};
   memberIds.value.forEach((id) => {
     if (isChecked(id)) next[id] = splitDefault(id);
@@ -209,7 +192,6 @@ function setSplitType(s: typeof splitType.value) {
   if (s === "items" && !items.value.items.length) showItems.value = true;
 }
 
-// Items-mode derived totals (expense currency), mirroring ItemsModal.
 const itemsGrandPerPerson = computed(() =>
   itemsTotals(items.value.items, memberIds.value),
 );
@@ -243,8 +225,6 @@ async function submit() {
       ? 1
       : Number(exchangeRate.value) || 1;
   const amountBase = Math.round(amt * rate * 100) / 100;
-  // Defaults mirror what the inputs show, so a missing value behaves the same
-  // here as it does on screen.
   const values: Record<string, number> = {};
   participants.value.forEach((id) => {
     values[id] = splitValues.value[id] ?? splitDefault(id);
@@ -268,9 +248,6 @@ async function submit() {
     }
     return;
   }
-  // The client computed `result` only to validate the input and render the
-  // live preview. The payload carries the SELECTION, never the amounts — the
-  // server recomputes and is authoritative. See AGENTS.md.
   try {
     const payload = {
       title: title.value.trim(),

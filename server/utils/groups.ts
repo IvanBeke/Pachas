@@ -8,13 +8,26 @@ import {
   groupMembers,
   groups,
   recurringExpenses,
+  settlementAllocations,
   settlements,
   users,
 } from "../db/schema";
 import { publicUser, type DbUser } from "./auth";
 import { GroupRole } from "../../shared/group-roles";
 import { canGroupAction } from "./group-permissions";
-import { lockGroup, writeTransaction } from "./sqlite-writes";
+import {
+  lockGroup,
+  writeTransaction,
+  type DbTransaction,
+} from "./sqlite-writes";
+import {
+  allocatePayment,
+  balancesFromPairwiseDebts,
+  buildPairwiseDebts,
+  suggestPairwiseTransfers,
+  suggestSimplifiedTransfers,
+  type PairwiseDebt,
+} from "./settlement-ledger";
 
 export interface GroupMember {
   userId: string;
@@ -34,6 +47,106 @@ export interface PublicGroup {
 }
 
 type GroupRow = typeof groups.$inferSelect;
+type QueryExecutor = typeof db | DbTransaction;
+
+interface PairwiseLedger {
+  debts: PairwiseDebt[];
+  balances: Balance[];
+  simplifyTransfers: boolean;
+  memberIds: string[];
+}
+
+async function loadPairwiseLedger(
+  gid: string,
+  executor: QueryExecutor = db,
+  groupRow?: GroupRow,
+): Promise<PairwiseLedger> {
+  const query = executor as typeof db;
+  const [expenseRows, allocationRows, settlementRows, members, row] = await Promise.all([
+    query
+      .select({ id: expenses.id, paidBy: expenses.paidBy })
+      .from(expenses)
+      .where(eq(expenses.groupId, gid)),
+    query
+      .select({
+        debtorId: settlementAllocations.debtorId,
+        creditorId: settlementAllocations.creditorId,
+        amount: settlementAllocations.amount,
+      })
+      .from(settlementAllocations)
+      .innerJoin(
+        settlements,
+        eq(settlementAllocations.settlementId, settlements.id),
+      )
+      .where(eq(settlements.groupId, gid)),
+    query
+      .select({ fromUser: settlements.fromUser, toUser: settlements.toUser })
+      .from(settlements)
+      .where(eq(settlements.groupId, gid)),
+    query
+      .select({ userId: groupMembers.userId })
+      .from(groupMembers)
+      .where(eq(groupMembers.groupId, gid)),
+    groupRow
+      ? Promise.resolve([groupRow])
+      : query.select().from(groups).where(eq(groups.id, gid)).limit(1),
+  ]);
+  const eids = expenseRows.map((expense) => expense.id);
+  const splitRows = eids.length
+    ? await query
+        .select({ expenseId: expenseSplits.expenseId, userId: expenseSplits.userId, amount: expenseSplits.amount })
+        .from(expenseSplits)
+        .where(inArray(expenseSplits.expenseId, eids))
+    : [];
+  const splitsByExpense = new Map<string, Record<string, number>>();
+  for (const split of splitRows) {
+    const splits = splitsByExpense.get(split.expenseId) ?? {};
+    splits[split.userId] = split.amount;
+    splitsByExpense.set(split.expenseId, splits);
+  }
+  const debts = buildPairwiseDebts(
+    expenseRows.map((expense) => ({
+      paidBy: expense.paidBy,
+      splits: splitsByExpense.get(expense.id) ?? {},
+    })),
+    allocationRows,
+  );
+  const balanceMap = new Map(
+    balancesFromPairwiseDebts(debts).map((balance) => [balance.memberId, balance.amount]),
+  );
+  for (const expense of expenseRows) {
+    if (!balanceMap.has(expense.paidBy)) balanceMap.set(expense.paidBy, 0);
+  }
+  for (const split of splitRows) {
+    if (!balanceMap.has(split.userId)) balanceMap.set(split.userId, 0);
+  }
+  for (const settlement of settlementRows) {
+    if (!balanceMap.has(settlement.fromUser)) balanceMap.set(settlement.fromUser, 0);
+    if (!balanceMap.has(settlement.toUser)) balanceMap.set(settlement.toUser, 0);
+  }
+  for (const allocation of allocationRows) {
+    if (!balanceMap.has(allocation.debtorId)) balanceMap.set(allocation.debtorId, 0);
+    if (!balanceMap.has(allocation.creditorId)) balanceMap.set(allocation.creditorId, 0);
+  }
+  for (const member of members) {
+    if (!balanceMap.has(member.userId)) balanceMap.set(member.userId, 0);
+  }
+  const balances = [...balanceMap.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([memberId, amount]) => ({ memberId, amount }));
+  return {
+    debts,
+    balances,
+    simplifyTransfers: row[0]?.simplifyTransfers ?? true,
+    memberIds: members.map((member) => member.userId),
+  };
+}
+
+function transfersForLedger(ledger: PairwiseLedger): SuggestedTransfer[] {
+  return ledger.simplifyTransfers
+    ? suggestSimplifiedTransfers(ledger.debts)
+    : suggestPairwiseTransfers(ledger.debts);
+}
 
 function toPublicGroup(row: GroupRow, members: GroupMember[]): PublicGroup {
   return {
@@ -193,6 +306,17 @@ export async function removeGroupMember(
         throw createError({ statusCode: 400, message: "cannot_remove_self" });
       }
       throw createError({ statusCode: 403, message: "forbidden" });
+    }
+    const ledger = await loadPairwiseLedger(gid, tx, row);
+    if (
+      transfersForLedger(ledger).some(
+        (transfer) => transfer.from === uid || transfer.to === uid,
+      )
+    ) {
+      throw createError({
+        statusCode: 409,
+        message: "member_has_outstanding_payments",
+      });
     }
     const removed = await tx
       .delete(groupMembers)
@@ -378,7 +502,20 @@ export async function createExpense(
 ): Promise<string> {
   const eid = randomUUID();
   const now = Date.now();
-  await db.transaction(async (tx) => {
+  await writeTransaction(async (tx) => {
+    await lockGroup(tx, gid);
+    const memberRows = await tx
+      .select({ userId: groupMembers.userId })
+      .from(groupMembers)
+      .where(eq(groupMembers.groupId, gid));
+    const memberIds = new Set(memberRows.map((member) => member.userId));
+    if (
+      !memberIds.has(creatorId) ||
+      !memberIds.has(payload.paidBy) ||
+      Object.keys(payload.splits).some((userId) => !memberIds.has(userId))
+    ) {
+      throw createError({ statusCode: 403, message: "not_a_member" });
+    }
     await tx.insert(expenses).values({
       id: eid,
       groupId: gid,
@@ -410,21 +547,60 @@ export async function deleteExpenseIfOwner(
   gid: string,
   eid: string,
   requesterId: string,
-  canManageAny: boolean,
 ): Promise<boolean> {
-  // Group creators/admins bypass the creator filter. The filter makes a
-  // non-owner get 404 rather than confirming the row exists.
-  const deleted = await db
-    .delete(expenses)
-    .where(
-      and(
-        eq(expenses.id, eid),
-        eq(expenses.groupId, gid),
-        ...(canManageAny ? [] : [eq(expenses.createdBy, requesterId)]),
-      ),
-    )
-    .returning({ id: expenses.id });
-  return deleted.length > 0;
+  return writeTransaction(async (tx) => {
+    const row = await lockGroup(tx, gid);
+    const memberRows = await tx
+      .select()
+      .from(groupMembers)
+      .where(eq(groupMembers.groupId, gid));
+    const group = toPublicGroup(
+      row,
+      memberRows.map((member) => ({ userId: member.userId, role: member.role })),
+    );
+    const target = await tx
+      .select({ createdBy: expenses.createdBy })
+      .from(expenses)
+      .where(and(eq(expenses.id, eid), eq(expenses.groupId, gid)))
+      .limit(1);
+    if (
+      !target[0] ||
+      !canGroupAction(
+        { id: requesterId },
+        group,
+        { type: "expense.delete", ownerId: target[0].createdBy },
+      )
+    ) {
+      return false;
+    }
+    const requesterRole = group.members.find(
+      (member) => member.userId === requesterId,
+    )?.role;
+    const canManageAny =
+      requesterRole === GroupRole.Creator || requesterRole === GroupRole.Admin;
+    const deleted = await tx
+      .delete(expenses)
+      .where(
+        and(
+          eq(expenses.id, eid),
+          eq(expenses.groupId, gid),
+          ...(canManageAny ? [] : [eq(expenses.createdBy, requesterId)]),
+        ),
+      )
+      .returning({ id: expenses.id });
+    return deleted.length > 0;
+  });
+}
+
+export async function deleteExpenseById(gid: string, eid: string): Promise<boolean> {
+  return writeTransaction(async (tx) => {
+    await lockGroup(tx, gid);
+    const deleted = await tx
+      .delete(expenses)
+      .where(and(eq(expenses.id, eid), eq(expenses.groupId, gid)))
+      .returning({ id: expenses.id });
+    return deleted.length > 0;
+  });
 }
 
 export async function getExpenseOwner(
@@ -444,24 +620,35 @@ export async function updateExpenseIfOwner(
   eid: string,
   payload: ExpensePayload,
   requesterId: string,
-  canManageAny: boolean,
 ): Promise<boolean> {
-  // The creator filter is what makes non-owners 404 rather than 403, so a
-  // plain member can't probe for the existence of someone else's expense.
-  const target = await db
-    .select({ id: expenses.id })
-    .from(expenses)
-    .where(
-      and(
-        eq(expenses.id, eid),
-        eq(expenses.groupId, gid),
-        ...(canManageAny ? [] : [eq(expenses.createdBy, requesterId)]),
-      ),
-    )
-    .limit(1);
-  if (!target.length) return false;
-
-  await db.transaction(async (tx) => {
+  return writeTransaction(async (tx) => {
+    const row = await lockGroup(tx, gid);
+    const memberRows = await tx
+      .select()
+      .from(groupMembers)
+      .where(eq(groupMembers.groupId, gid));
+    const group = toPublicGroup(
+      row,
+      memberRows.map((member) => ({ userId: member.userId, role: member.role })),
+    );
+    const target = await tx
+      .select({ createdBy: expenses.createdBy })
+      .from(expenses)
+      .where(and(eq(expenses.id, eid), eq(expenses.groupId, gid)))
+      .limit(1);
+    const memberIds = new Set(group.memberIds);
+    if (
+      !target[0] ||
+      !canGroupAction(
+        { id: requesterId },
+        group,
+        { type: "expense.update", ownerId: target[0].createdBy },
+      ) ||
+      !memberIds.has(payload.paidBy) ||
+      Object.keys(payload.splits).some((userId) => !memberIds.has(userId))
+    ) {
+      return false;
+    }
     await tx
       .update(expenses)
       .set({
@@ -485,21 +672,13 @@ export async function updateExpenseIfOwner(
         amount: payload.splits[uid] ?? 0,
       });
     }
+    return true;
   });
-  return true;
-}
-
-/** How many expenses a group holds; used to gate currency changes. */
-export async function countExpenses(gid: string): Promise<number> {
-  const rows = await db
-    .select({ n: sql<number>`count(*)` })
-    .from(expenses)
-    .where(eq(expenses.groupId, gid));
-  return rows[0]?.n ?? 0;
 }
 
 export async function updateGroup(
   gid: string,
+  actorId: string,
   patch: {
     name: string;
     emoji: string;
@@ -507,18 +686,58 @@ export async function updateGroup(
     simplifyTransfers: boolean;
   },
 ): Promise<void> {
-  await db
-    .update(groups)
-    .set({
-      name: patch.name,
-      emoji: patch.emoji,
-      baseCurrency: patch.baseCurrency,
-      simplifyTransfers: patch.simplifyTransfers,
-    })
-    .where(eq(groups.id, gid));
+  await writeTransaction(async (tx) => {
+    const row = await lockGroup(tx, gid);
+    const memberRows = await tx
+      .select()
+      .from(groupMembers)
+      .where(eq(groupMembers.groupId, gid));
+    const group = toPublicGroup(
+      row,
+      memberRows.map((member) => ({ userId: member.userId, role: member.role })),
+    );
+    if (!canGroupAction({ id: actorId }, group, "group.settings.update")) {
+      throw createError({ statusCode: 403, message: "forbidden" });
+    }
+    if (patch.baseCurrency !== row.baseCurrency) {
+      const expenseCount = await tx
+        .select({ n: sql<number>`count(*)` })
+        .from(expenses)
+        .where(eq(expenses.groupId, gid));
+      if ((expenseCount[0]?.n ?? 0) > 0) {
+        throw createError({
+          statusCode: 409,
+          message: "base_currency_locked",
+        });
+      }
+    }
+    if (row.simplifyTransfers && !patch.simplifyTransfers) {
+      const ledger = await loadPairwiseLedger(gid, tx, row);
+      if (
+        suggestPairwiseTransfers(ledger.debts).some(
+          (transfer) =>
+            !ledger.memberIds.includes(transfer.from) ||
+            !ledger.memberIds.includes(transfer.to),
+        )
+      ) {
+        throw createError({
+          statusCode: 409,
+          message: "pairwise_plan_includes_former_members",
+        });
+      }
+    }
+    await tx
+      .update(groups)
+      .set({
+        name: patch.name,
+        emoji: patch.emoji,
+        baseCurrency: patch.baseCurrency,
+        simplifyTransfers: patch.simplifyTransfers,
+      })
+      .where(eq(groups.id, gid));
+  });
 }
 
-/** Ids of every existing category, so imports can't invent new ones. */
 export async function listCategoryIds(): Promise<Set<string>> {
   const rows = await db.select({ id: categories.id }).from(categories);
   return new Set(rows.map((r) => String(r.id)));
@@ -531,15 +750,9 @@ export interface ImportRow {
   paidBy: string;
   category: string;
   date: string;
-  /** Keyed by group member id; must sum to `amount`. */
   splits: Record<string, number>;
 }
 
-/**
- * Creates a whole import in a single transaction: either every row lands or
- * none does. Split rows are batched per expense so a 1000+ row import doesn't
- * issue thousands of round trips.
- */
 export async function importExpenses(
   gid: string,
   rows: ImportRow[],
@@ -547,7 +760,27 @@ export async function importExpenses(
 ): Promise<number> {
   if (!rows.length) return 0;
   const now = Date.now();
-  await db.transaction(async (tx) => {
+  await writeTransaction(async (tx) => {
+    const groupRow = await lockGroup(tx, gid);
+    const memberRows = await tx
+      .select()
+      .from(groupMembers)
+      .where(eq(groupMembers.groupId, gid));
+    const group = toPublicGroup(
+      groupRow,
+      memberRows.map((member) => ({ userId: member.userId, role: member.role })),
+    );
+    const memberIds = new Set(group.memberIds);
+    if (
+      !canGroupAction({ id: creatorId }, group, "import") ||
+      rows.some(
+        (row) =>
+          !memberIds.has(row.paidBy) ||
+          Object.keys(row.splits).some((userId) => !memberIds.has(userId)),
+      )
+    ) {
+      throw createError({ statusCode: 403, message: "not_a_member" });
+    }
     for (const r of rows) {
       const eid = randomUUID();
       await tx.insert(expenses).values({
@@ -579,7 +812,6 @@ export async function importExpenses(
 
 export interface Balance {
   memberId: string;
-  /** Positive = is owed, negative = owes. In the group's base currency. */
   amount: number;
 }
 
@@ -589,134 +821,29 @@ export interface SuggestedTransfer {
   amount: number;
 }
 
-/**
- * Net balance per member: what they paid out minus what they owe, with
- * settlements treated as debt repayment. Authoritative version of the
- * client-side `computeBalances`; both must agree.
- */
 export async function getBalances(gid: string): Promise<Balance[]> {
-  const [expenseRows, settlementRows, memberRows] = await Promise.all([
-    db
-      .select({
-        paidBy: expenses.paidBy,
-        amountBase: expenses.amountBase,
-      })
-      .from(expenses)
-      .where(eq(expenses.groupId, gid)),
-    db
-      .select({ from: settlements.fromUser, to: settlements.toUser, amount: settlements.amount })
-      .from(settlements)
-      .where(eq(settlements.groupId, gid)),
-    db
-      .select({ userId: groupMembers.userId })
-      .from(groupMembers)
-      .where(eq(groupMembers.groupId, gid)),
-  ]);
-  const splitsByExpense: Record<string, Record<string, number>> = {};
-  if (expenseRows.length) {
-    const eids = (
-      await db.select({ id: expenses.id }).from(expenses).where(eq(expenses.groupId, gid))
-    ).map((e) => e.id);
-    if (eids.length) {
-      const splitRows = await db
-        .select()
-        .from(expenseSplits)
-        .where(inArray(expenseSplits.expenseId, eids));
-      for (const s of splitRows) {
-        (splitsByExpense[s.expenseId] ||= {})[s.userId] = s.amount;
-      }
-    }
-  }
-
-  const bal: Record<string, number> = {};
-  for (const m of memberRows) bal[m.userId] = 0;
-  for (const e of expenseRows) {
-    bal[e.paidBy] = (bal[e.paidBy] || 0) + e.amountBase;
-  }
-  for (const eids of Object.keys(splitsByExpense)) {
-    for (const [uid, v] of Object.entries(splitsByExpense[eids] ?? {})) {
-      bal[uid] = (bal[uid] || 0) - v;
-    }
-  }
-  for (const s of settlementRows) {
-    bal[s.from] = (bal[s.from] || 0) + s.amount;
-    bal[s.to] = (bal[s.to] || 0) - s.amount;
-  }
-  return Object.keys(bal).map((memberId) => ({
-    memberId,
-    amount: Math.round((bal[memberId] ?? 0) * 100) / 100,
-  }));
+  return (await loadPairwiseLedger(gid)).balances;
 }
 
-/**
- * Greedy netting: pair the largest debtor with the largest creditor and move
- * the smaller of the two remaining amounts, advancing whichever side is
- * exhausted. Produces at most n-1 transfers, the minimum possible.
- */
-export function simplifyDebts(balances: Balance[]): SuggestedTransfer[] {
-  const creditors: { id: string; amt: number }[] = [];
-  const debtors: { id: string; amt: number }[] = [];
-  for (const b of balances) {
-    const v = Math.round(b.amount * 100) / 100;
-    if (v > 0.004) creditors.push({ id: b.memberId, amt: v });
-    else if (v < -0.004) debtors.push({ id: b.memberId, amt: -v });
-  }
-  creditors.sort((a, b) => b.amt - a.amt);
-  debtors.sort((a, b) => b.amt - a.amt);
-  const tx: SuggestedTransfer[] = [];
-  let i = 0;
-  let j = 0;
-  while (i < debtors.length && j < creditors.length) {
-    const d = debtors[i];
-    const c = creditors[j];
-    if (!d || !c) break;
-    const amt = Math.min(d.amt, c.amt);
-    tx.push({ from: d.id, to: c.id, amount: Math.round(amt * 100) / 100 });
-    d.amt -= amt;
-    c.amt -= amt;
-    if (d.amt < 0.005) i++;
-    if (c.amt < 0.005) j++;
-  }
-  return tx;
+export async function simplifyDebts(gid: string): Promise<SuggestedTransfer[]> {
+  const ledger = await loadPairwiseLedger(gid);
+  return suggestSimplifiedTransfers(ledger.debts);
 }
 
-/**
- * Every debtor pays every creditor the smaller of what they owe and what is
- * owed, so each pair is settled directly instead of being netted through
- * intermediaries. Long, but it only involves pairs that actually shared
- * something.
- */
-export function pairwiseTransfers(balances: Balance[]): SuggestedTransfer[] {
-  const creditors = balances
-    .filter((b) => b.amount > 0.004)
-    .map((b) => ({ id: b.memberId, amt: Math.round(b.amount * 100) / 100 }));
-  const debtors = balances
-    .filter((b) => b.amount < -0.004)
-    .map((b) => ({ id: b.memberId, amt: Math.round(-b.amount * 100) / 100 }));
-  const tx: SuggestedTransfer[] = [];
-  for (const d of debtors) {
-    let remaining = d.amt;
-    for (const c of creditors) {
-      if (remaining < 0.005) break;
-      const amt = Math.min(remaining, c.amt);
-      if (amt < 0.005) continue;
-      tx.push({ from: d.id, to: c.id, amount: Math.round(amt * 100) / 100 });
-      remaining = Math.round((remaining - amt) * 100) / 100;
-      c.amt = Math.round((c.amt - amt) * 100) / 100;
-    }
-  }
-  return tx;
+export async function pairwiseTransfers(gid: string): Promise<SuggestedTransfer[]> {
+  const ledger = await loadPairwiseLedger(gid);
+  return suggestPairwiseTransfers(ledger.debts);
 }
 
-/** Balances plus the transfers that would settle them, per the group setting. */
 export async function getSettlementPlan(gid: string) {
-  const balances = await getBalances(gid);
-  const group = await getGroupById(gid);
-  const simplify = group?.simplifyTransfers ?? true;
+  const ledger = await loadPairwiseLedger(gid);
+  const transfers = ledger.simplifyTransfers
+    ? suggestSimplifiedTransfers(ledger.debts)
+    : suggestPairwiseTransfers(ledger.debts);
   return {
-    balances,
-    transfers: simplify ? simplifyDebts(balances) : pairwiseTransfers(balances),
-    simplifyTransfers: simplify,
+    balances: ledger.balances,
+    transfers,
+    simplifyTransfers: ledger.simplifyTransfers,
   };
 }
 
@@ -740,21 +867,68 @@ export async function getSettlements(gid: string) {
 
 export async function createSettlement(
   gid: string,
-  payload: { from: string; to: string; amount: number; note: string },
-  creatorId: string,
-): Promise<string> {
+  payload: { from: string; to: string; amount?: number; note: string },
+  actorId: string,
+): Promise<{ id: string; amount: number }> {
   const sid = randomUUID();
-  await db.insert(settlements).values({
-    id: sid,
-    groupId: gid,
-    fromUser: payload.from,
-    toUser: payload.to,
-    amount: payload.amount,
-    note: payload.note,
-    createdBy: creatorId,
-    createdAt: Date.now(),
+  return writeTransaction(async (tx) => {
+    const groupRow = await lockGroup(tx, gid);
+    const memberRows = await tx
+      .select()
+      .from(groupMembers)
+      .where(eq(groupMembers.groupId, gid));
+    const group = toPublicGroup(
+      groupRow,
+      memberRows.map((member) => ({ userId: member.userId, role: member.role })),
+    );
+    if (!group.memberIds.includes(payload.from) || !group.memberIds.includes(payload.to)) {
+      throw createError({ statusCode: 400, message: "Both people must be group members." });
+    }
+    if (!canGroupAction({ id: actorId }, group, { type: "settlement.create", debtorId: payload.from })) {
+      throw createError({ statusCode: 403, message: "forbidden" });
+    }
+    const ledger = await loadPairwiseLedger(gid, tx, groupRow);
+    const suggested = transfersForLedger(ledger).find(
+      (transfer) => transfer.from === payload.from && transfer.to === payload.to,
+    );
+    if (!suggested) {
+      throw createError({ statusCode: 400, message: "There is no suggested payment between these members." });
+    }
+    const requested = payload.amount;
+    const amount = requested === undefined ? suggested.amount : Math.round(requested * 100) / 100;
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw createError({ statusCode: 400, message: "Amount must be greater than zero." });
+    }
+    if (amount - suggested.amount > 0.004) {
+      throw createError({ statusCode: 400, message: "Amount is more than the outstanding debt." });
+    }
+    const allocation = allocatePayment(ledger.debts, payload.from, payload.to, amount);
+    if (!allocation) {
+      throw createError({ statusCode: 409, message: "settlement_allocation_failed" });
+    }
+    const createdAt = Date.now();
+    await tx.insert(settlements).values({
+      id: sid,
+      groupId: gid,
+      fromUser: payload.from,
+      toUser: payload.to,
+      amount,
+      note: payload.note,
+      createdBy: actorId,
+      createdAt,
+    });
+    if (allocation.allocations.length) {
+      await tx.insert(settlementAllocations).values(
+        allocation.allocations.map((entry) => ({
+          settlementId: sid,
+          debtorId: entry.debtorId,
+          creditorId: entry.creditorId,
+          amount: entry.amount,
+        })),
+      );
+    }
+    return { id: sid, amount };
   });
-  return sid;
 }
 
 export async function deleteSettlementIfOwner(
@@ -762,17 +936,42 @@ export async function deleteSettlementIfOwner(
   sid: string,
   requesterId: string,
 ): Promise<boolean> {
-  const deleted = await db
-    .delete(settlements)
-    .where(
-      and(
-        eq(settlements.id, sid),
-        eq(settlements.groupId, gid),
-        eq(settlements.createdBy, requesterId),
-      ),
-    )
-    .returning({ id: settlements.id });
-  return deleted.length > 0;
+  return writeTransaction(async (tx) => {
+    await lockGroup(tx, gid);
+    const member = await tx
+      .select({ userId: groupMembers.userId })
+      .from(groupMembers)
+      .where(
+        and(
+          eq(groupMembers.groupId, gid),
+          eq(groupMembers.userId, requesterId),
+        ),
+      )
+      .limit(1);
+    if (!member.length) return false;
+    const deleted = await tx
+      .delete(settlements)
+      .where(
+        and(
+          eq(settlements.id, sid),
+          eq(settlements.groupId, gid),
+          eq(settlements.createdBy, requesterId),
+        ),
+      )
+      .returning({ id: settlements.id });
+    return deleted.length > 0;
+  });
+}
+
+export async function deleteSettlementById(gid: string, sid: string): Promise<boolean> {
+  return writeTransaction(async (tx) => {
+    await lockGroup(tx, gid);
+    const deleted = await tx
+      .delete(settlements)
+      .where(and(eq(settlements.id, sid), eq(settlements.groupId, gid)))
+      .returning({ id: settlements.id });
+    return deleted.length > 0;
+  });
 }
 
 export async function getSettlementRecorder(

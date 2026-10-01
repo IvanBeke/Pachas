@@ -53,8 +53,7 @@ Full Nuxt 4 app (Vue 3 SPA, `ssr: false`) with a local SQLite database, Vitest t
 - Built-in category seed data is applied idempotently by the SQLite entrypoint after schema migrations. Spanish is the base title and English is stored as the translation.
 
 ## Security
-`security_fixes.md` records a full review and its remediation. The rules that
-constrain future work:
+Security rules that constrain future work:
 - **All password hashing is async, and `/login` + `/register` are rate limited.** `bcryptjs` is pure JS: `compareSync` blocked the event loop ~48 ms, so ~20 req/s from one connection saturated the whole server. Never reintroduce the `*Sync` variants on a request path.
 - **Only *failed* logins count against the limiter** (`peek` before hashing, `hit` on failure). This is load-bearing for the test suite, not just for users: the API contract suite signs in repeatedly from one address, so counting successes would make the suite throttle itself into a 429 and become non-repeatable. There is no env-var bypass — a security control that can be switched off by a stray variable is one variable away from being off in production.
 - **Money inputs are validated three deep** — finite checks in `readExpenseInput`, a `bad_amount` result in the shared `computeSplits`, and a finite check on the computed shares. This is deliberate defence in depth, but it has a testing consequence: removing any *one* layer leaves the others rejecting the request, so `tests/expense-integrity.test.ts` pins the property rather than any single line. A test that only removes one guard proves nothing.

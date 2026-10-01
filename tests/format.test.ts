@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   fmt,
-  itemsTotals,
   itemsTotalPrice,
   splitProportional,
   type ExpenseItem,
 } from "../app/utils/format";
+import { itemsTotals } from "../app/utils/splits";
 
 describe("fmt", () => {
   it("renders a currency amount with two decimals", () => {

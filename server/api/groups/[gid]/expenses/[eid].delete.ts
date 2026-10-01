@@ -22,7 +22,6 @@ export default defineEventHandler(async (event) => {
     gid,
     eid,
     me.id,
-    canGroupAction(me, group, "expense.manage.any"),
   );
   if (!ok) {
     throw createError({

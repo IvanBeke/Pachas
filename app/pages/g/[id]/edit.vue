@@ -26,7 +26,6 @@ const confirmDeleteGroup = ref(false);
 const leaving = ref(false);
 const hasExpenses = ref(false);
 
-// Local form state, seeded from the group once it loads.
 const name = ref("");
 const emoji = ref("🧾");
 const currency = ref("EUR");
@@ -60,7 +59,6 @@ function roleOf(uid: string): GroupRole | null {
   return group.value?.members.find((member) => member.userId === uid)?.role ?? null;
 }
 
-/** Non-creators may leave; the creator must transfer ownership first. */
 const canLeave = computed(
   () =>
     !!group.value &&
@@ -78,7 +76,7 @@ async function leaveGroup() {
     });
     await navigateTo("/");
   } catch (e: unknown) {
-    showToast((e as Error)?.message || t("groupEdit.leaveFailed"));
+    showToast(groupActionError(e, t("groupEdit.leaveFailed")));
   } finally {
     leaving.value = false;
   }
@@ -88,7 +86,6 @@ async function load() {
   try {
     group.value = await $fetch<Group>(`/api/groups/${gid}`);
     await ensure(group.value.memberIds || []);
-    // Drives the currency lock; the server is the authority either way.
     try {
       const expenses = await $fetch<unknown[]>(`/api/groups/${gid}/expenses`);
       hasExpenses.value = expenses.length > 0;
@@ -125,7 +122,7 @@ async function save() {
     await load();
     showToast(t("groupEdit.saved"));
   } catch (e: unknown) {
-    showToast((e as Error)?.message || t("groupEdit.couldntSave"));
+    showToast(groupActionError(e, t("groupEdit.couldntSave")));
   } finally {
     saving.value = false;
   }
@@ -137,8 +134,20 @@ async function removeMember(uid: string) {
     confirmRemoveMember.value = null;
     await load();
   } catch (e: unknown) {
-    showToast((e as Error)?.message || t("group.couldntRemove"));
+    showToast(groupActionError(e, t("group.couldntRemove")));
   }
+}
+
+function groupActionError(error: unknown, fallback: string): string {
+  const data = (error as { data?: { message?: string; statusMessage?: string } })?.data;
+  const code = data?.message || data?.statusMessage;
+  if (code === "member_has_outstanding_payments") {
+    return t("groupEdit.memberHasOutstandingPayments");
+  }
+  if (code === "pairwise_plan_includes_former_members") {
+    return t("groupEdit.pairwiseFormerMembers");
+  }
+  return (error as Error)?.message || fallback;
 }
 
 async function changeMemberRole(uid: string, event: Event) {
@@ -217,7 +226,6 @@ onMounted(async () => {
           {{ t("groupEdit.readOnly") }}
         </div>
 
-        <!-- Details -->
         <div class="section-label">{{ t("groupEdit.details") }}</div>
         <div class="card">
           <div class="row2">
@@ -261,7 +269,6 @@ onMounted(async () => {
           </div>
         </div>
 
-        <!-- Members -->
         <div class="section-label" style="margin-top: 22px">
           {{ t("groupEdit.members") }}
         </div>
@@ -320,7 +327,6 @@ onMounted(async () => {
           </div>
         </div>
 
-        <!-- Import -->
         <template v-if="canManage">
         <div class="section-label" style="margin-top: 22px">
           {{ t("groupEdit.import") }}
@@ -374,7 +380,6 @@ onMounted(async () => {
       @error="showToast($event)"
     />
 
-    <!-- Leave group confirmation -->
     <div v-if="confirmLeave" class="overlay" @click.self="confirmLeave = false">
       <div class="sheet-wrap">
         <div class="sheet">
@@ -399,7 +404,6 @@ onMounted(async () => {
       </div>
     </div>
 
-    <!-- Remove member confirmation -->
     <div v-if="confirmRemoveMember" class="overlay" @click.self="confirmRemoveMember = null">
       <div class="sheet-wrap">
         <div class="sheet">

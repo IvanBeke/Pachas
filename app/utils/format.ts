@@ -82,8 +82,6 @@ function num(v: unknown, fallback = 0): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
-// Items-split payload carried in the expense description (see ItemsModal).
-// Returns null when the description is plain text or malformed.
 export function parseItems(description: string): ItemsData | null {
   if (!description || description[0] !== "{") return null;
   try {
@@ -106,16 +104,11 @@ export function parseItems(description: string): ItemsData | null {
   }
 }
 
-// Per-person totals live in shared/splits.ts alongside the split maths that
-// consumes them; re-exported here so existing imports keep working.
-export { itemsTotals } from "../../shared/splits";
 
 export function itemsTotalPrice(items: ExpenseItem[]): number {
   return Math.round(items.reduce((s, it) => s + (it.price || 0), 0) * 100) / 100;
 }
 
-// Distribute `total` proportionally to `weights` (Splitwise tax/tip behavior),
-// penny remainder folded into the largest weight. Zero weights get zero.
 export function splitProportional(
   total: number,
   weights: Record<string, number>,
