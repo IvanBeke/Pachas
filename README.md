@@ -145,6 +145,24 @@ rebuilds/updates. The app applies pending database migrations on every start,
 so new columns/tables in future versions apply automatically — existing data is
 never dropped.
 
+### Pre-built images
+
+Every green build on `main` publishes a multi-arch image (`linux/amd64` and
+`linux/arm64`) to `ghcr.io/ivanbeke/pachas`, tagged with the branch, the git
+SHA, and `latest` for the default branch. To use it instead of building locally,
+point the `pachas` service at the image:
+
+```yaml
+  pachas:
+    image: ghcr.io/ivanbeke/pachas:latest
+```
+
+Images are signed keylessly with cosign, so you can check what you pulled:
+
+```bash
+cosign verify ghcr.io/ivanbeke/pachas@sha256:<digest>
+```
+
 ## Uninstalling
 
 ```bash
@@ -198,17 +216,22 @@ pnpm test        # unit + property tests (no server or database needed)
 pnpm typecheck   # vue-tsc, must stay at 0 errors
 ```
 
-Both run through Docker so the host stays clean:
+Both run through Docker so the host stays clean — the `dev` service is the pnpm
+image with the source bind-mounted and `node_modules` in a named volume:
 
 ```bash
-docker run --rm --network host -v $PWD:/app -v pachas-packages:/app/node_modules \
-  -w /app node:26-alpine sh -c "npm i -g pnpm@12.5.1 && pnpm test"
+docker compose run --rm --no-deps dev pnpm test
+docker compose run --rm --no-deps dev pnpm typecheck
 ```
 
-`--network host` lets the contract tests reach the running app. Those tests
-talk to `http://localhost:3000`, create their own throwaway users and group,
-and **skip themselves** if no server is reachable — so `pnpm test` stays green
-in CI, where there is no database. To run just those: `pnpm test:api`.
+The contract tests reach the running app over the compose network. They create
+their own throwaway users and group, and **skip themselves** if no server is
+reachable — so `pnpm test` stays green in CI, where there is no database. To run
+just those:
+
+```bash
+PACHAS_API=http://pachas:3000 docker compose run --rm --no-deps -e PACHAS_API dev pnpm test:api
+```
 
 The API tests leave their test group and throwaway accounts behind (there is
 no `DELETE /groups/:id` route). Clean up afterwards with:

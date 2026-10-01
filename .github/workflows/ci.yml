@@ -2,8 +2,13 @@ name: CI
 
 on:
   push:
-    branches: [main, master]
+    branches: ["main"]
   pull_request:
+    branches: ["main"]
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -11,21 +16,25 @@ concurrency:
 
 jobs:
   verify:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: pnpm/action-setup@v4
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          version: 12.5.1
+          persist-credentials: false
+          fetch-depth: 1
 
-      - uses: actions/setup-node@v4
+      # Reads packageManager and devEngines.runtime from package.json, so the
+      # pnpm and Node versions here cannot drift from the project's. Requires
+      # the lockfile and installs with --frozen-lockfile.
+      - name: Setup pnpm and Node
+        uses: pnpm/setup@fbda4c85fc2e1e08721cd8763afea8f48d60f024 # v3
         with:
-          node-version: 26
-          cache: pnpm
-
-      # Build approvals (esbuild) live in pnpm-workspace.yaml.
-      - run: pnpm install --frozen-lockfile
+          cache: true
+          require-lockfile: true
 
       # Generates .nuxt types, which the typecheck depends on.
       - name: Prepare Nuxt
@@ -36,3 +45,20 @@ jobs:
 
       - name: Typecheck
         run: pnpm typecheck
+
+  image:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      # The publish workflow only runs after this one is green, so a Dockerfile
+      # that no longer builds is caught here rather than after a push.
+      - name: Build image
+        run: docker build -t pachas:ci .

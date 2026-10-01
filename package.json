@@ -19,25 +19,32 @@
   "engines": {
     "node": ">=26"
   },
-  "packageManager": "pnpm@12.5.1",
+  "devEngines": {
+    "runtime": {
+      "name": "node",
+      "version": "26.x",
+      "onFail": "download"
+    }
+  },
+  "packageManager": "pnpm@12.8.1",
   "dependencies": {
     "@nuxtjs/i18n": "^10.6.0",
     "bcryptjs": "^3.0.3",
     "drizzle-orm": "^0.45.2",
-    "h3": "^1.15.4",
+    "h3": "^1.15.11",
     "postgres": "^3.4.0"
   },
   "devDependencies": {
-    "@nuxt/test-utils": "^3.19.2",
-    "@nuxthub/core": "^0.10.0",
-    "@vue/test-utils": "^2.4.6",
-    "drizzle-kit": "^0.31.0",
-    "happy-dom": "^20.0.0",
+    "@nuxt/test-utils": "^4.3.2",
+    "@nuxthub/core": "^0.10.8",
+    "@vue/test-utils": "^2.5.1",
+    "drizzle-kit": "^0.31.11",
+    "happy-dom": "^20.14.5",
     "nuxt": "^4.5.2",
-    "typescript": "^5.9.0",
-    "vitest": "^4.1.11",
-    "vue": "^3.5.0",
-    "vue-router": "^4.5.0",
-    "vue-tsc": "^3.1.0"
+    "typescript": "^6.0.3",
+    "vitest": "^5.0.2",
+    "vue": "^3.5.43",
+    "vue-router": "^5.3.1",
+    "vue-tsc": "^3.3.11"
   }
 }

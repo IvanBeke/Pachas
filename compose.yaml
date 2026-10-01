@@ -15,6 +15,14 @@ services:
       timeout: 5s
       retries: 10
 
+  dev:
+    image: ghcr.io/pnpm/pnpm:12
+    profiles: [tooling]
+    working_dir: /app
+    volumes:
+      - .:/app
+      - pachas-dev-node-modules:/app/node_modules
+
   pachas:
     build: .
     image: pachas:latest
@@ -39,3 +47,4 @@ services:
 
 volumes:
   pachas-pgdata:
+  pachas-dev-node-modules:

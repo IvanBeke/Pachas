@@ -32,11 +32,11 @@ docker compose up -d --build
 The container applies any pending schema migrations before serving, so there is
 no manual migrate step. The app is then on `http://localhost:3000`.
 
-Dependency installs must not pollute the host, so use a throwaway container:
+Dependency installs must not pollute the host, so run them in the `dev` service —
+the pnpm image with the source bind-mounted and `node_modules` in a named volume:
 
 ```bash
-docker run --rm -v $PWD:/app -v pachas-packages:/app/node_modules -w /app \
-  node:26-alpine sh -c "npm i -g pnpm@12.5.1 && pnpm install"
+docker compose run --rm --no-deps dev pnpm install
 ```
 
 ## Verification required before opening a PR
@@ -44,11 +44,8 @@ docker run --rm -v $PWD:/app -v pachas-packages:/app/node_modules -w /app \
 Run, in this order:
 
 ```bash
-docker run --rm -v $PWD:/app -v pachas-packages:/app/node_modules -w /app \
-  node:26-alpine sh -c "npm i -g pnpm@12.5.1 && pnpm test"
-
-docker run --rm -v $PWD:/app -v pachas-packages:/app/node_modules -w /app \
-  node:26-alpine sh -c "npm i -g pnpm@12.5.1 && pnpm typecheck"
+docker compose run --rm --no-deps dev pnpm test
+docker compose run --rm --no-deps dev pnpm typecheck
 ```
 
 `pnpm test` runs the unit and property suites and needs no server or database.
@@ -56,11 +53,11 @@ docker run --rm -v $PWD:/app -v pachas-packages:/app/node_modules -w /app \
 compiler flag.
 
 Then, with the app running, run the contract suite (it self-skips when no server
-is reachable, so a green run means nothing unless one was actually up):
+is reachable, so a green run means nothing unless one was actually up). It
+reaches the app over the compose network:
 
 ```bash
-docker run --rm --network host -v $PWD:/app -v pachas-packages:/app/node_modules -w /app \
-  node:26-alpine sh -c "npm i -g pnpm@12.5.1 && pnpm test:api"
+PACHAS_API=http://pachas:3000 docker compose run --rm --no-deps -e PACHAS_API dev pnpm test:api
 ```
 
 If your change touches authorization, balances or settlements, say so in the PR —
@@ -77,6 +74,23 @@ ad-hoc scripts, one-off commands or throwaway fixtures — they cannot catch
 regressions, and anything worth checking twice belongs in a test. A passing
 suite is not proof on its own: mutate the source and confirm a test actually
 fails before trusting a new test.
+
+## What CI does with your branch
+
+`ci.yml` runs the unit tests and typecheck, and separately builds the Docker
+image, so a Dockerfile that no longer builds fails before anything ships. When
+both are green on `main`, `docker-publish.yml` pushes the image to GHCR and
+signs it. CodeQL scans JavaScript/TypeScript on every push and pull request.
+
+Two consequences for contributors:
+
+- **A pull request from a fork is not built.** `docker build` runs repository
+  code on a GitHub runner, so CI skips it unless the branch lives in this
+  repository. Ask for a branch to be pushed here if you need the image check.
+- **Actions are pinned to commit SHAs.** If you touch a workflow and see a
+  `@abc123… # v3`, leave the comment as the version label and update both
+  together — `gh api repos/<owner>/<repo>/git/ref/tags/<tag>` is how you resolve
+  a new SHA.
 
 ## Style and conventions
 
