@@ -1,81 +1,27 @@
-# AGENTS.md
+# Agent instructions
 
-Full Nuxt 4 app (Vue 3 SPA, `ssr: false`) with a local SQLite database, Vitest tests, `vue-tsc` typecheck, and a GitHub Actions CI workflow.
+Pachas is a Nuxt 4 / Vue 3 SPA (`ssr: false`) with Nitro API routes and local
+SQLite. Application code and package/tooling config live in `src/`; Docker,
+Compose, GitHub workflows, and human-facing docs stay at the repository root.
 
-## Run
-- Always run project tech-stack commands using Docker and the Compose services, never on the host.
-- `cp .env.example .env` then set `SESSION_SECRET` (`openssl rand -hex 32`). `DATABASE_PATH` is optional and defaults to `/data/pachas.sqlite` inside the app container.
-- `docker compose up -d --build` → app at `http://localhost:3000`. Data persists in the `pachas_pachas-data` volume. Runtime deps live inside the image — nothing is mounted over `/app/node_modules`, host stays clean.
-- Toolchain: pnpm ships in the image (`ghcr.io/pnpm/pnpm:12`), Node 26 is pinned by the project (`devEngines.runtime: 26.x`, which pnpm downloads and puts on PATH) — never `npm i -g pnpm`, never the host.
-- Every pnpm command runs through the `dev` service, which is that same image with the source bind-mounted and `node_modules` in a named volume: `docker compose run --rm --no-deps dev pnpm <cmd>`. The host stays clean.
-- Dependency build scripts are locked down, not ignored: `pnpm-workspace.yaml` keeps `strictDepBuilds` at its default `true`, so an unreviewed install script **fails** the install instead of running. `allowBuilds` lists exactly one package, `esbuild`, which cannot be dropped — `@intlify/bundle-utils` (from `@nuxtjs/i18n`) and `drizzle-kit` depend on it directly, and both ship `postinstall`. Adding a name to `allowBuilds` means reviewing that package's scripts. Fresh-release protection still fails closed via `minimumReleaseAgeStrict`.
+## Before changing code
 
-## Testing
-- **All verification goes through Vitest, in `tests/`. Never verify with ad-hoc scripts, throwaway fixtures, or one-off commands — they cannot catch regressions.** Do not write throwaway Python/Node scripts to check behaviour; anything worth checking twice belongs in a test.
-- `pnpm test` — unit + property tests (no server or database needed). `pnpm test:api` — contract tests against a running app.
-- Run them through the `dev` service: `docker compose run --rm --no-deps dev pnpm test`. Contract tests reach the app over the compose network — start the stack first (`docker compose up -d --build`), then `PACHAS_API=http://pachas:3000 docker compose run --rm --no-deps -e PACHAS_API dev pnpm test:api`.
-- `pnpm typecheck` (`nuxt typecheck`) must stay at **0 errors**. Nuxt's generated config enables `noUncheckedIndexedAccess`, so indexed access needs a guard — fix the code, don't relax the flag.
-- Three Vitest projects in `vitest.config.ts`: `unit` (node, pure logic), `api` (live-server contract tests, **self-skip when the server is unreachable so CI stays green without a DB**), `dom` (happy-dom, for component tests).
-- Use plain `vitest/config`, not `@nuxt/test-utils`: booting the Nuxt pipeline makes `@nuxthub/core` try to clear `.data/`, which fails on a host bind-mount. Server utils are plain TS, so this is also faster.
-- Tests resolve real users/groups from the API rather than hardcoding UUIDs — membership is validated against real rows, so a fake uuid is silently dropped.
-- Property tests (`settlement-properties.test.ts`) generate ledgers from a seeded PRNG so failures reproduce. When asserting an algorithm's behaviour, prefer a generated sample over a handful of hand-picked cases: hand-picked fixtures agreed with each other and hid that the two settlement algorithms diverge.
-- A passing suite is not proof. Mutate the source and confirm a test fails before trusting a new test.
-- CI: `.github/workflows/ci.yml` — a `verify` job (`pnpm/setup`, `nuxt prepare`, `pnpm test`, `pnpm typecheck`) and an `image` job that builds the Dockerfile, so a broken build fails before anything is published. `.github/workflows/docker-publish.yml` fires on `workflow_run` after CI is green on `main`: pushes a multi-arch `linux/amd64,linux/arm64` image to GHCR, tags it (branch/tag/sha/latest), and signs it with cosign keyless. `.github/workflows/codeql.yml` runs JavaScript/TypeScript analysis, uploading only on push.
-- **Every action is pinned to a commit SHA**, not a tag — a tag is mutable, so a moved tag is remote code execution in a job that holds `packages: write`. The trailing `# v3` comment records which release the SHA is, so `gh` upgrades by hand. Two rules behind the rest: `permissions` is set at the top of every workflow and narrowed again per job (`contents: read` by default; only publish and CodeQL-push get more), and `actions/checkout` runs with `persist-credentials: false` so the token is not left in `.git/config` for a later step, or a build script, to read. Both matter more here than usual: `pnpm install` runs dependency lifecycle scripts (`allowBuilds` approves esbuild's `postinstall`), so a malicious transitive package already gets code execution in the job — the token is what it would be after. Jobs also carry `timeout-minutes` so a hung step cannot occupy a runner, and the workflow-level `concurrency` group cancels superseded runs on the same ref.
-- The publish workflow triggers on `workflow_run` rather than `push` on purpose: it runs in the context of the default branch with secrets, and a fork's PR must never reach it. The success + `head_branch == 'main'` + `head_repository.full_name == github.repository` guards are all required; a fork can name its branch `main`, so the branch check alone is insufficient.
+- Read the relevant shared project guidance:
+  - [`docs/architecture.md`](./docs/architecture.md) for app structure and data flow.
+  - [`docs/conventions.md`](./docs/conventions.md) for security and coding invariants.
+  - [`docs/deployment.md`](./docs/deployment.md) for deployment, backup, and configuration details.
+  - [`docs/verification.md`](./docs/verification.md) for commands and test requirements.
+- Money values persisted by the app are server-authoritative. Do not trust
+  computed client values for storage.
 
-## The server is authoritative
-- **The front end is never trusted. All money math happens on the server.** The client may compute anything for a live preview, but it must never send computed results to be stored.
-- The client sends the **selection**; the server derives the values. For expenses that means `splitType` + `participants` + `values` (+ `items`), never a `splits` map. `readExpenseInput` (`server/utils/expense-input.ts`) recomputes every split and rejects the request if the result doesn't reconcile.
-- `shared/splits.ts` is the single implementation of `computeSplits`, imported by both the app (preview) and the server (authoritative), so the two cannot drift. Put logic here when both sides need it. `app/utils/splits.ts` is a re-export.
-- Same rule for settlements: `POST /settlements` validates against the current server-generated plan, derives allocations across the pairwise debt graph, and persists those allocations with the actual transfer.
-- Same for the Splitwise importer: the file is re-parsed server-side on commit, not trusted from a client-side parse.
-- **When adding a computed field, decide who owns it.** If it affects stored money, the server computes and validates it; the client's copy is presentation only.
+## Required workflow
 
-## Structure
-- `nuxt.config.ts` (`ssr: false` — auth-gated app, and prerendering would call `/api/*` with no DB at build time; `hub.db` sqlite/libsql + `snake_case` casing + `applyMigrationsDuringBuild: false`; `defaultLocale: "es"`).
-- `shared/**/*.ts` — code both client and server import (see above).
-- `server/api/**/*.ts` — Nitro routes. `server/utils/`: `auth.ts` (sessions in SQLite `app_sessions`, cookie `pachas.sid`, 30d, `requireAdmin`), `session-token.ts` (`sessionDigest` / `requireSessionSecret` — pure, unit-tested), `rate-limit.ts` (in-process fixed-window limiter, `clientIp`), `groups.ts` (domain queries and group-ID-based settlement plans), `settlement-ledger.ts` (pure pairwise debt/transfer accounting), `expense-input.ts` (authoritative expense validation), `recurring-input.ts` (recurrence fields + reuse of the expense validator), `splitwise.ts` (CSV parsing), `import-input.ts` (`readImportRequest` — one multipart read, pre-checks `Content-Length`), `client.ts` (runtime SQLite client — see Database). `server/plugins/strip-powered-by.ts` removes the framework header. Security headers are declarative, in `nuxt.config.ts` `routeRules`.
-- Route map: `POST /login`, `POST /logout`, `GET /me`, `POST /register`, `GET /config`, `GET /health`; `users/search`; `categories` CRUD (site-wide list); `admin/overview` + `admin/{expenses,settlements}` deletes (admin only); `groups` CRUD — `GET/PATCH /groups/:gid`, `members` add/remove, `expenses` CRUD, `settlements` CRUD + `settlements/plan` (server-computed balances and suggested transfers), `recurring` CRUD, `import/analyze` (dry run) + `import` (commit).
-- `server/db/schema.ts` — single Drizzle schema source of truth; `server/db/migrations/sqlite/` — generated SQL, never hand-edit.
-- `scripts/migrate.mjs` + `scripts/entrypoint.sh` — entrypoint applies migrations and idempotent category seeds before starting the server. `scripts/cleanup-test-data.mjs` prunes API-test leftovers.
-- `app/pages/index.vue` (groups), `app/pages/g/[id]/index.vue` (detail), `app/pages/g/[id]/edit.vue` (group settings, members, Splitwise import), `app/pages/login.vue`, `app/pages/admin.vue`; `app/components/*Modal.vue`; `app/composables/`; `app/utils/format.ts` (formatting, item maths).
-- `Dockerfile` is multi-stage: `build` on `ghcr.io/pnpm/pnpm:12` installs all deps then runs `pnpm build`; `prod-deps` installs `--prod` only; `runtime` is `node:26-slim` carrying just those prod deps, `.output`, the SQLite migrations, and the entrypoint, running as a `node` user with `HEALTHCHECK /api/health`. Debian slim matches libSQL's bundled GNU native binding. SQLite lives under `/data`, a named volume in Compose; `DATABASE_PATH` may point elsewhere in the container if that directory is mounted.
-- `compose.yaml` has two services: `pachas` (built image, the app) and `dev` (`ghcr.io/pnpm/pnpm:12`, source bind-mounted, `node_modules` in the `pachas-dev-node-modules` volume) which is what every pnpm command runs in. `dev` is a one-off — run it with `docker compose run --rm`, never `up`.
-
-## Database (NuxtHub Drizzle — https://hub.nuxt.com/docs/database)
-- Runtime database is a local SQLite file accessed through `drizzle-orm/libsql` and `@libsql/client`. `DATABASE_PATH` points to the file and defaults to `/data/pachas.sqlite`; Compose mounts `/data` as the persistent `pachas-data` volume. Node 26's built-in `node:sqlite` API applies migrations.
-- SQLite schema uses `text` UUIDs, `real` money values, `integer` timestamps/booleans, and JSON-mode `text` columns. Drizzle `casing: 'snake_case'` maps camelCase keys to snake_case columns.
-- Workflow: change `server/db/schema.ts` → `docker compose run --rm --no-deps dev pnpm db:generate` (never on the host) → restart/rebuild applies. Never write migration SQL files by hand; `drizzle.config.ts` is auto-generated, don't create one.
-- `nuxt db generate --name X` is broken in hub 0.10 (arg glues into `--config=`); use bare `nuxt db generate`.
-- `server/utils/client.ts` opens the SQLite file lazily using `DATABASE_PATH`; it does not use NuxtHub's generated client. Runtime write transactions use SQLite `immediate` behavior to serialize ledger and membership changes. The entrypoint applies journal-driven SQLite migrations before starting the server.
-- Dependencies: `drizzle-orm` + `@libsql/client` + `h3` in `dependencies`; `@nuxthub/core`, `drizzle-kit`, `nuxt`, `typescript` in `devDependencies` (build/migration generation only). Runtime `pnpm install --prod` needs `--ignore-scripts` (postinstall requires devDeps).
-- Built-in category seed data is applied idempotently by the SQLite entrypoint after schema migrations. Spanish is the base title and English is stored as the translation.
-
-## Security
-Security rules that constrain future work:
-- **All password hashing is async, and `/login` + `/register` are rate limited.** `bcryptjs` is pure JS: `compareSync` blocked the event loop ~48 ms, so ~20 req/s from one connection saturated the whole server. Never reintroduce the `*Sync` variants on a request path.
-- **Only *failed* logins count against the limiter** (`peek` before hashing, `hit` on failure). This is load-bearing for the test suite, not just for users: the API contract suite signs in repeatedly from one address, so counting successes would make the suite throttle itself into a 429 and become non-repeatable. There is no env-var bypass — a security control that can be switched off by a stray variable is one variable away from being off in production.
-- **Money inputs are validated three deep** — finite checks in `readExpenseInput`, a `bad_amount` result in the shared `computeSplits`, and a finite check on the computed shares. This is deliberate defence in depth, but it has a testing consequence: removing any *one* layer leaves the others rejecting the request, so `tests/expense-integrity.test.ts` pins the property rather than any single line. A test that only removes one guard proves nothing.
-- **`Infinity` is the number to fear in money code.** `Number("1e400")` is `Infinity`, which is truthy and `> 0`, so `!x || x <= 0` does not catch it. Worse, `Infinity - Infinity` is `NaN` and *every* comparison against `NaN` is false, so a reconciliation guard written as `if (Math.abs(sum - total) > 0.05)` silently passes a poisoned payload. Use `Number.isFinite` on inputs and on any computed difference.
-- **Any group member may add another member**, an intentional product choice even though it grants access to the group's expense history. Only group creators/admins may remove other members; any non-creator may leave. New memberships always get the `member` role.
-- **A group's `baseCurrency` is frozen once it has expenses.** `amountBase` is denormalised into every expense row, so changing it later would reinterpret the whole ledger with no conversion.
-- **The session cookie gains a `__Host-` prefix when `COOKIE_SECURE=true`.** That prefix requires `Secure`, so it cannot be used on plain-HTTP LAN — the name follows the deployment, and flipping `COOKIE_SECURE` deliberately invalidates existing sessions. Session lookup and logout both read under the prefixed *and* bare name.
-- `users/search` requires ≥2 characters and escapes `%`/`_`, so it can't be used to dump the user directory.
-- `x-powered-by` can only be removed in a Nitro hook — assigning `""` via `routeRules` leaves the original value in place.
-
-## Gotchas
-- `compose.yaml` requires `SESSION_SECRET`; `DATABASE_PATH` is optional. The default SQLite file is persisted in the named volume mounted at `/data`. `.dockerignore` excludes `.env`, never `COPY` it.
-- `COOKIE_SECURE` must stay `"false"` on plain HTTP LAN; `"true"` without HTTPS breaks login cookies. `ALLOW_REGISTRATION` defaults `"true"`; set `"false"` after initial signups.
-- `SESSION_SECRET` keys the session digests. The cookie holds a 32-byte random token; `app_sessions.token` stores `HMAC-SHA256(SESSION_SECRET, token)`, never the cookie value — so a DB backup is not a set of usable session cookies. It must be set: `requireSessionSecret` throws rather than falling back to an unkeyed hash, and `compose.yaml` enforces it with `${VAR:?}`. **All three** session call sites (`createSession`, `destroySession`, `getSessionUser`) must digest; miss one and logout stops revoking, which `tests/api.contract.test.ts` catches. Rotating it logs everyone out at once.
-- Startup applies pending generated SQLite migrations before serving; never drop tables or silently discard data.
-- `group_members.role` is constrained to `creator`, `admin`, or `member` and `server/utils/group-permissions.ts` is the group authorization source of truth. Group roles are separate from `users.role` (`'user'` / `'admin'`), which is a **site-wide** flag only — the first account created becomes app admin. App admins do not gain group permissions. Every group route still requires membership; only group creator/admin may change settings or import, any member may add members, only creator/admin may remove other members, members may edit/delete only their own expenses and recurring expenses and record only their own debts, creator/admin may manage any expense/recurring expense and record any member's debt, settlement deletion is limited to its recorder, and only creator may transfer the creator role or delete the group. Members cannot leave or be removed while involved in a suggested payment under the selected settlement mode. Admins may promote/demote non-creators. The creator cannot leave; other roles may leave once clear.
-- Nitro route filenames: `[gid]`/`[eid]`/`[sid]` are file-name params, not directories — count `../` to `server/utils/` from the containing folder (e.g. `server/api/groups/[gid]/expenses/*.ts` needs `../../../../utils/`).
-- Polling (`useGroupDetail.ts`, 4s, skipped when tab hidden) only mutates list refs; modals keep local `reactive()` state so refreshes never wipe typing. Don't reintroduce a global re-render.
-- A route file and a directory of the same name collide. `app/pages/g/[id].vue` alongside `app/pages/g/[id]/edit.vue` makes the edit page a **child** route, which never renders without a `<NuxtPage />` in the parent. Use `app/pages/g/[id]/index.vue` so they are siblings.
-- Category titles must render through `translatedTitle(cat, locale)`; the raw `cat.title` is the base (Spanish) title. Admin-managed categories can have any locale, so the select options need the helper, not the field.
-- i18n messages are compiled into token arrays by `@nuxtjs/i18n`, so a literal like `"{from} debe {amount} a {to}"` will **not** appear in the bundle. Grep for the key instead. Use `<i18n-t>` with named slots to keep per-locale word order while rendering names as components — never `v-html` (display names are user data).
-- `simplifyTransfers` chooses between group-net transfers allocated along debt paths and direct outstanding pairwise debts. `server/utils/settlement-ledger.ts` is the pure cent-based accounting implementation; group-facing algorithms load by group ID. Settlement allocations conserve the actual transfer flow across the debt graph. Members involved in the selected plan cannot leave or be removed; switching to pairwise mode is blocked if its output would involve former members. See `tests/settlement-properties.test.ts`.
-- Splitwise CSV member columns hold **net** balances, not raw shares: a payer's own portion is already deducted. A negative balance is that member's exact share and the payer's share is the remainder — `undefined + n` is `NaN`, which `JSON.stringify` writes as `null` and the server reads as `0`. That bug shipped once; `tests/splitwise.test.ts` guards it.
-- Some API contract fixtures and all throwaway users (`own*`, `oth*`, `str*` + a run id) intentionally persist; group deletion exists, but not every suite deletes its fixture. After running the API tests, clean up with `docker compose exec pachas node scripts/cleanup-test-data.mjs` (idempotent; matches only the suite's naming patterns).
-- Admin authorisation is explicit per route, and the UI must agree with it. In group routes, group creators/admins may edit or delete anyone's expense; members may do so only for their own, and a non-owner gets **404**, not 403, so the response never confirms the row exists. Site-wide app-admin status grants no group permission; `/api/admin/*` remains a separate platform-level surface.
+- Run Node/pnpm tooling through Docker Compose; never on the host.
+- Start development with `docker compose up -d`. Run tests and typecheck with
+  `docker compose run --rm --no-deps pachas pnpm test` and
+  `docker compose run --rm --no-deps pachas pnpm typecheck`.
+- API contract tests need the app running. Use `PACHAS_API=http://pachas:3000`
+  with `docker compose run --rm --no-deps -e PACHAS_API pachas pnpm test:api`.
+- Production uses `docker compose -f compose.prod.yaml pull` followed by
+  `docker compose -f compose.prod.yaml up -d`; it runs
+  `ghcr.io/ivanbeke/pachas:latest` and persists SQLite data in `pachas-data`.

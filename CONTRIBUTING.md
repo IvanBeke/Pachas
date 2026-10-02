@@ -2,6 +2,11 @@
 
 Thanks for contributing.
 
+For architecture and security invariants, see
+[`docs/architecture.md`](./docs/architecture.md) and
+[`docs/conventions.md`](./docs/conventions.md). Verification commands are in
+[`docs/verification.md`](./docs/verification.md).
+
 ## Maintainer scope disclaimer
 
 I built this app around my own day-to-day usage and preferences.
@@ -27,17 +32,22 @@ refuses to start without it. `DATABASE_PATH` is optional and defaults to the
 SQLite file `/data/pachas.sqlite` inside the app container.
 
 ```bash
-docker compose up -d --build
+docker compose up -d
 ```
 
-The container applies any pending schema migrations before serving, so there is
-no manual migrate step. The app is then on `http://localhost:3000`.
+This starts the development app at `http://localhost:3000`. Source is
+bind-mounted for hot reload, and dependencies are installed into a named Docker
+volume so dependency changes do not require rebuilding an image. Migrations and
+built-in categories are applied before Nuxt starts. For production, use
+`docker compose -f compose.prod.yaml up -d`.
 
-Dependency installs must not pollute the host, so run them in the `dev` service —
-the pnpm image with the source bind-mounted and `node_modules` in a named volume:
+Dependency files must stay in the named Docker volume, so run installs and
+checks through the development service:
 
 ```bash
-docker compose run --rm --no-deps dev pnpm install
+docker compose run --rm --no-deps pachas pnpm install
+docker compose run --rm --no-deps pachas pnpm test
+docker compose run --rm --no-deps pachas pnpm typecheck
 ```
 
 ## Verification required before opening a PR
@@ -45,8 +55,8 @@ docker compose run --rm --no-deps dev pnpm install
 Run, in this order:
 
 ```bash
-docker compose run --rm --no-deps dev pnpm test
-docker compose run --rm --no-deps dev pnpm typecheck
+docker compose run --rm --no-deps pachas pnpm test
+docker compose run --rm --no-deps pachas pnpm typecheck
 ```
 
 `pnpm test` runs the unit and property suites and needs no server or database.
@@ -58,7 +68,7 @@ is reachable, so a green run means nothing unless one was actually up). It
 reaches the app over the compose network:
 
 ```bash
-PACHAS_API=http://pachas:3000 docker compose run --rm --no-deps -e PACHAS_API dev pnpm test:api
+docker compose run --rm --no-deps -e PACHAS_API=http://pachas:3000 pachas pnpm test:api
 ```
 
 If your change touches authorization, balances or settlements, say so in the PR —
@@ -67,10 +77,10 @@ those paths are the ones with real money behind them.
 Afterwards, clean up the throwaway rows the suite leaves behind:
 
 ```bash
-docker compose exec pachas node scripts/cleanup-test-data.mjs
+docker compose exec pachas pnpm exec node scripts/cleanup-test-data.mjs
 ```
 
-**Verification goes through Vitest, in `tests/`.** Do not verify behavior with
+**Verification goes through Vitest, in `src/tests/`.** Do not verify behavior with
 ad-hoc scripts, one-off commands or throwaway fixtures — they cannot catch
 regressions, and anything worth checking twice belongs in a test. A passing
 suite is not proof on its own: mutate the source and confirm a test actually
@@ -93,32 +103,11 @@ Two consequences for contributors:
   together — `gh api repos/<owner>/<repo>/git/ref/tags/<tag>` is how you resolve
   a new SHA.
 
-## Style and conventions
+## Code conventions
 
-- **The server is authoritative.** All money math happens server-side. The
-  client sends the *selection* (`splitType`, `participants`, `values`), never
-  precomputed amounts, and the server recomputes and rejects anything that does
-  not reconcile. Same rule for settlements and for the Splitwise importer, whose
-  file is re-parsed on commit rather than trusted from a client-side parse.
-- **Share logic instead of duplicating it.** Anything both the browser and the
-  server need belongs in `shared/`, imported by both. `shared/splits.ts` is the
-  single implementation of `computeSplits` precisely so the two cannot drift.
-- Put code that only the server needs in `server/utils/`. Mind the relative
-  depth: Nitro route params are file names, not directories, so count the `../`
-  segments to reach `server/utils/`.
-- Use plain `vitest/config` in tests, not `@nuxt/test-utils`. Booting the Nuxt
-  pipeline needs a live database. Name suites `*.test.ts`, contract tests
-  `api.*.test.ts`, component tests `*.dom.test.ts`.
-- Migrations are generated, never hand-written: change `server/db/schema.ts`,
-  then run `nuxt db generate`. Seed data belongs in the migration that owns the
-  table, not a new one.
-- Group access and authorization use `group_members.role` and
-  `server/utils/group-permissions.ts`. Group roles (`creator`, `admin`,
-  `member`) are separate from the site-wide `users.role`; never use app-admin
-  status to grant group permissions.
-- Render category titles through `translatedTitle(cat, locale)`, and never use
-  `v-html` for user-supplied data such as display names.
-- Do not hardcode secrets.
+See [`docs/conventions.md`](./docs/conventions.md) for money, authorization,
+shared-code, UI, and security rules. See [`docs/architecture.md`](./docs/architecture.md)
+for the server/client boundary, routes, and database workflow.
 
 ## Pull requests
 
