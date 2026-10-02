@@ -1,28 +1,24 @@
 services:
-  dev:
-    image: ghcr.io/pnpm/pnpm:12
-    profiles: [tooling]
-    working_dir: /app
-    volumes:
-      - .:/app
-      - pachas-dev-node-modules:/app/node_modules
-
   pachas:
-    build: .
-    image: pachas:latest
-    container_name: pachas
+    image: ghcr.io/pnpm/pnpm:12
+    working_dir: /app
     restart: unless-stopped
     ports:
       - "3000:3000"
     volumes:
-      - pachas-data:/data
+      - ./src:/app
+      - pachas-dev-node-modules:/app/node_modules
+      - pachas-dev-data:/data
     environment:
+      NODE_ENV: development
       PORT: "3000"
-      DATABASE_PATH: ${DATABASE_PATH:-/data/pachas.sqlite}
+      DATABASE_PATH: /data/pachas.sqlite
       SESSION_SECRET: ${SESSION_SECRET:?Set SESSION_SECRET in your .env file}
       ALLOW_REGISTRATION: "true"
       COOKIE_SECURE: "false"
+    entrypoint: ["/bin/sh", "/app/scripts/dev-entrypoint.sh"]
+    command: ["pnpm", "dev", "--host", "0.0.0.0"]
 
 volumes:
-  pachas-data:
   pachas-dev-node-modules:
+  pachas-dev-data:

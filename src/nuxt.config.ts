@@ -1,6 +1,12 @@
 export default defineNuxtConfig({
+  srcDir: "app/",
+  serverDir: "server/",
+  dir: { shared: "shared/" },
   ssr: false,
   devtools: { enabled: false },
+  // The client-only dev server doesn't need a manifest; disabling it avoids
+  // Vite trying to resolve Nuxt's server-only `#app-manifest` dynamic import.
+  experimental: { appManifest: process.env.NODE_ENV !== "development" },
   modules: ["@nuxthub/core", "@nuxtjs/i18n"],
   i18n: {
     defaultLocale: "es",

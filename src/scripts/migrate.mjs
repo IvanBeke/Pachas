@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
@@ -16,12 +16,18 @@ const database = new DatabaseSync(databasePath, {
 database.exec("PRAGMA journal_mode = WAL");
 database.exec("PRAGMA synchronous = NORMAL");
 
-const migrationsDir = join(
-  dirname(fileURLToPath(import.meta.url)),
-  "..",
+const appRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const packagedMigrationsDir = join(appRoot, "migrations", "sqlite");
+const sourceMigrationsDir = join(
+  appRoot,
+  "server",
+  "db",
   "migrations",
   "sqlite",
 );
+const migrationsDir = existsSync(packagedMigrationsDir)
+  ? packagedMigrationsDir
+  : sourceMigrationsDir;
 const journal = JSON.parse(
   readFileSync(join(migrationsDir, "meta", "_journal.json"), "utf8"),
 );
