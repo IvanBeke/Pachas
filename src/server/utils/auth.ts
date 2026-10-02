@@ -131,6 +131,7 @@ export function publicUser(row: DbUser) {
     id: row.id,
     name: row.name,
     username: row.username,
+    locale: (row.locale === "en" ? "en" : "es") as "en" | "es",
     color: `hsl(${h % 360}, 42%, 45%)`,
     role: (row.role === "admin" ? "admin" : "user") as "admin" | "user",
   };

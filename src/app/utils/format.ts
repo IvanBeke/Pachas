@@ -173,6 +173,7 @@ export interface Profile {
   id: string;
   name: string;
   username: string;
+  locale: "es" | "en";
   color: string;
   role: "admin" | "user";
 }

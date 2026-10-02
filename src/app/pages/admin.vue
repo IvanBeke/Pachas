@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { useAuth } from "~/composables/useAuth";
 import { timeAgo, translatedTitle } from "~/utils/format";
-import LanguageSwitcher from "~/components/LanguageSwitcher.vue";
 
 const { t, locale } = useI18n();
 
@@ -160,7 +159,6 @@ onMounted(async () => {
       <button class="back-btn" @click="navigateTo('/')">‹ {{ t("common.groups") }}</button>
       <div class="brand"><span class="mark">P</span>{{ t("common.admin") }}</div>
       <div class="spacer"></div>
-      <LanguageSwitcher />
     </div>
     <main>
       <div class="tabs">

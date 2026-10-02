@@ -4,7 +4,6 @@ import { useAuth } from "~/composables/useAuth";
 import { useProfiles } from "~/composables/useGroups";
 import AddMemberModal from "~/components/AddMemberModal.vue";
 import ImportModal from "~/components/ImportModal.vue";
-import LanguageSwitcher from "~/components/LanguageSwitcher.vue";
 import { GroupRole } from "../../../../shared/group-roles";
 
 const { t } = useI18n();
@@ -203,7 +202,6 @@ onMounted(async () => {
         ‹ {{ t("groupEdit.back") }}
       </button>
       <div class="spacer"></div>
-      <LanguageSwitcher />
     </div>
 
     <main>

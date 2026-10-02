@@ -15,14 +15,14 @@ import ExpenseModal from "~/components/ExpenseModal.vue";
 import SettleModal from "~/components/SettleModal.vue";
 import AddMemberModal from "~/components/AddMemberModal.vue";
 import RecurringModal from "~/components/RecurringModal.vue";
-import LanguageSwitcher from "~/components/LanguageSwitcher.vue";
+import AccountMenu from "~/components/AccountMenu.vue";
 import { GroupRole } from "../../../../shared/group-roles";
 
 const { t } = useI18n();
 
 const route = useRoute();
 const gid = String(route.params.id);
-const { user, fetchMe, logout } = useAuth();
+const { user, fetchMe } = useAuth();
 const { profiles, nameOf, ensure } = useProfiles();
 const { group, expenses, settlements, balances, transfers, loading, reload } =
   useGroupDetail(gid);
@@ -223,40 +223,7 @@ onMounted(async () => {
     <div class="topbar">
       <button class="back-btn" @click="navigateTo('/')">‹ {{ t("common.groups") }}</button>
       <div class="spacer"></div>
-      <LanguageSwitcher />
-      <div v-if="user" class="me-chip">
-        <div
-          class="avatar"
-          :style="{
-            background: avatarBg(user.id),
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            color: '#fff',
-            fontWeight: 700,
-            fontSize: '11px',
-          }"
-          :title="user.name"
-        >
-          {{ (user.name || "Y").trim().charAt(0).toUpperCase() }}
-        </div>
-        <span>{{ user.name || user.username }}</span>
-        <button
-          v-if="user.role === 'admin'"
-          class="btn btn-sm"
-          style="margin-left: 2px"
-          @click="navigateTo('/admin')"
-        >
-          {{ t("common.admin") }}
-        </button>
-        <button
-          class="btn btn-ghost btn-sm"
-          style="margin-left: 2px"
-          @click="logout"
-        >
-          {{ t("common.logOut") }}
-        </button>
-      </div>
+      <AccountMenu v-if="user" :user="user" />
     </div>
     <main>
       <div v-if="loading || !group" class="empty">

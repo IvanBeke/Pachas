@@ -10,7 +10,11 @@ import {
   type RecurringExpense,
 } from "~/utils/format";
 import { useProfiles } from "~/composables/useGroups";
-import { computeSplits, type SplitType } from "~/utils/splits";
+import {
+  computeSplits,
+  splitsToInputValues,
+  type SplitType,
+} from "~/utils/splits";
 
 const { t, locale } = useI18n();
 
@@ -31,14 +35,27 @@ const paidBy = ref(props.initial?.paidBy ?? props.me.id);
 const category = ref(props.initial?.category ?? "general");
 const startDate = ref(props.initial?.startDate ?? todayStr());
 const endDate = ref(props.initial?.endDate ?? "");
+const showCur = ref(false);
 const recurrence = ref<"week" | "month" | "year">(
   props.initial?.recurrence ?? "month",
 );
 const splitType = ref<SplitType>(
   (props.initial?.splitType as SplitType) ?? "equal",
 );
-const participants = ref<string[]>([...(props.group.memberIds || [])]);
-const splitValues = ref<Record<string, number>>({});
+const participants = ref<string[]>(
+  props.initial
+    ? Object.keys(props.initial.splits)
+    : [...(props.group.memberIds || [])],
+);
+const splitValues = ref<Record<string, number>>(
+  props.initial
+    ? splitsToInputValues(
+        props.initial.splits,
+        props.initial.amountBase,
+        splitType.value,
+      )
+    : {},
+);
 
 const categories = ref<Category[]>([]);
 onMounted(async () => {
@@ -81,6 +98,67 @@ function setSplitType(s: typeof splitType.value) {
   });
   splitValues.value = next;
 }
+
+function equalShare(id: string): string {
+  if (!isChecked(id)) return "—";
+  return fmt(amountNum.value / (participants.value.length || 1), currency.value);
+}
+
+const remainText = computed(() => {
+  if (splitType.value === "equal") return "";
+  const amountValue = amountNum.value;
+  let sum = 0;
+  memberIds.value.forEach((id) => {
+    if (isChecked(id)) {
+      sum += Number(splitValues.value[id] ?? splitDefault(id)) || 0;
+    }
+  });
+  if (splitType.value === "exact") {
+    const remaining = Math.round((amountValue - sum) * 100) / 100;
+    if (Math.abs(remaining) < 0.005) return t("expenseModal.splitsMatch");
+    return (
+      fmt(Math.abs(remaining), currency.value) +
+      (remaining > 0
+        ? " " + t("expenseModal.leftToAssign")
+        : " " + t("expenseModal.tooMuch"))
+    );
+  }
+  if (splitType.value === "percent") {
+    const remaining = Math.round((100 - sum) * 100) / 100;
+    if (Math.abs(remaining) < 0.005) return t("expenseModal.hundredPercent");
+    return (
+      Math.abs(remaining) +
+      "% " +
+      (remaining > 0
+        ? t("expenseModal.leftToAssign")
+        : t("expenseModal.tooMuch"))
+    );
+  }
+  return sum + " " + t("expenseModal.totalShare", sum);
+});
+
+const remainOk = computed(() => {
+  if (splitType.value === "equal") return true;
+  if (splitType.value === "exact") {
+    let sum = 0;
+    memberIds.value.forEach((id) => {
+      if (isChecked(id)) {
+        sum += Number(splitValues.value[id] ?? splitDefault(id)) || 0;
+      }
+    });
+    return Math.abs(amountNum.value - sum) < 0.005;
+  }
+  if (splitType.value === "percent") {
+    let sum = 0;
+    memberIds.value.forEach((id) => {
+      if (isChecked(id)) {
+        sum += Number(splitValues.value[id] ?? splitDefault(id)) || 0;
+      }
+    });
+    return Math.abs(100 - sum) < 0.005;
+  }
+  return true;
+});
 
 async function submit() {
   if (!startDate.value || (endDate.value && endDate.value < startDate.value)) {
@@ -177,7 +255,11 @@ async function submit() {
           :placeholder="t('expenseModal.titlePlaceholder')"
         />
         <div class="hero-amount">
-          <button class="hero-cur" type="button">
+          <button
+            class="hero-cur"
+            type="button"
+            @click="showCur = !showCur"
+          >
             {{ currency }} ▾
           </button>
           <input
@@ -188,6 +270,17 @@ async function submit() {
             class="hero-num"
             placeholder="0.00"
           />
+        </div>
+        <div v-if="showCur" class="cur-list">
+          <button
+            v-for="c in CURRENCIES"
+            :key="c"
+            class="cur-item"
+            type="button"
+            @click="currency = c; showCur = false"
+          >
+            {{ c }}
+          </button>
         </div>
         <div class="row2">
           <div class="field">
@@ -246,7 +339,7 @@ async function submit() {
         </div>
         <div class="field">
           <label>{{ t("expenseModal.split") }}</label>
-          <div class="segmented">
+          <div class="segmented split-mode-toggle">
             <button
               v-for="s in ['equal', 'exact', 'percent', 'shares']"
               :key="s"
@@ -256,7 +349,7 @@ async function submit() {
               {{ t(`expenseModal.split${s.charAt(0).toUpperCase() + s.slice(1)}`) }}
             </button>
           </div>
-          <div v-if="splitType !== 'equal'">
+          <div>
             <div v-for="id in memberIds" :key="id" class="split-row">
               <input
                 type="checkbox"
@@ -264,7 +357,11 @@ async function submit() {
                 @change="toggleParticipant(id)"
               />
               <span class="nm">{{ nameOf(id, me) }}</span>
+              <span v-if="splitType === 'equal'" class="split-share-value">
+                {{ equalShare(id) }}
+              </span>
               <input
+                v-else
                 v-model.number="splitValues[id]"
                 type="number"
                 :step="splitType === 'shares' ? 1 : 0.01"
@@ -272,6 +369,13 @@ async function submit() {
                 :disabled="!isChecked(id)"
               />
             </div>
+          </div>
+          <div
+            v-if="splitType !== 'equal'"
+            class="split-remain"
+            :class="remainOk ? 'ok' : 'bad'"
+          >
+            {{ remainText }}
           </div>
         </div>
         <div class="modal-actions">
@@ -321,9 +425,41 @@ async function submit() {
   background: var(--bg-sunken);
   border-radius: 999px;
   padding: 6px 12px;
-  cursor: default;
+  cursor: pointer;
   font-family: var(--sans);
   white-space: nowrap;
+}
+.hero-cur:active {
+  transform: scale(0.97);
+}
+.cur-list {
+  margin-top: 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  max-height: 180px;
+  overflow-y: auto;
+  position: absolute;
+  left: 20px;
+  right: 20px;
+  z-index: 30;
+  background: var(--bg-elevated);
+}
+.cur-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: none;
+  padding: 10px 12px;
+  font-size: 14px;
+  color: var(--ink);
+  cursor: pointer;
+  font-family: var(--sans);
+}
+.cur-item:hover,
+.cur-item:active {
+  background: var(--bg-sunken);
 }
 .hero-num {
   flex: 1;

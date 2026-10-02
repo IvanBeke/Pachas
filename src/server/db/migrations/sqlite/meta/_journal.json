@@ -22,6 +22,13 @@
       "when": 1790971407672,
       "tag": "0002_freezing_dark_phoenix",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1790980982130,
+      "tag": "0003_soft_lady_bullseye",
+      "breakpoints": true
     }
   ]
 }

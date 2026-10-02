@@ -61,6 +61,7 @@ const splitType = ref<"equal" | "exact" | "percent" | "shares" | "items">("equal
 const isRecurring = ref(false);
 const recurrence = ref<"week" | "month" | "year">("month");
 const startDate = ref(todayStr());
+const endDate = ref("");
 const participants = ref<string[]>([...(props.group.memberIds || [])]);
 const splitValues = ref<Record<string, number>>({});
 const items = ref<ItemsData>({ items: [], tax: 0, tipPercent: 0 });
@@ -220,6 +221,13 @@ async function submit() {
     emit("error", t("expenseModal.errorItem"));
     return;
   }
+  if (
+    isRecurring.value &&
+    (!startDate.value || (endDate.value && endDate.value < startDate.value))
+  ) {
+    emit("error", t("recurringModal.invalidDateRange"));
+    return;
+  }
   const rate =
     currency.value === props.group.baseCurrency
       ? 1
@@ -275,7 +283,12 @@ async function submit() {
     } else if (isRecurring.value) {
       await $fetch(`/api/groups/${props.group.id}/recurring`, {
         method: "POST",
-        body: { ...payload, recurrence: recurrence.value, startDate: startDate.value },
+        body: {
+          ...payload,
+          recurrence: recurrence.value,
+          startDate: startDate.value,
+          endDate: endDate.value || null,
+        },
       });
     } else {
       await $fetch(`/api/groups/${props.group.id}/expenses`, {
@@ -398,12 +411,16 @@ const splitTypes = [
           </div>
           <div v-if="isRecurring" class="field" style="margin-top: 10px">
             <label>{{ t("expenseModal.startDate") }}</label>
-            <input v-model="startDate" type="date" />
+            <input v-model="startDate" type="date" required />
+          </div>
+          <div v-if="isRecurring" class="field">
+            <label>{{ t("expenseModal.endDate") }}</label>
+            <input v-model="endDate" type="date" :min="startDate" />
           </div>
         </div>
         <div class="field">
           <label>{{ t("expenseModal.split") }}</label>
-          <div class="segmented">
+          <div class="segmented split-mode-toggle">
             <button
               v-for="s in splitTypes"
               :key="s.value"
@@ -436,15 +453,7 @@ const splitTypes = [
                 @change="toggleParticipant(id)"
               />
               <span class="nm">{{ nameOf(id, me) }}</span>
-              <span
-                v-if="splitType === 'equal'"
-                style="
-                  width: 84px;
-                  text-align: right;
-                  font-size: 13px;
-                  color: var(--ink-faint);
-                "
-              >
+              <span v-if="splitType === 'equal'" class="split-share-value">
                 {{ equalShare(id) }}
               </span>
               <input

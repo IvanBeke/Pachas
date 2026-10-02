@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { useAuth } from "~/composables/useAuth";
 import { useGroups, useProfiles } from "~/composables/useGroups";
+import AccountMenu from "~/components/AccountMenu.vue";
 import GroupModal from "~/components/GroupModal.vue";
-import LanguageSwitcher from "~/components/LanguageSwitcher.vue";
 
 const { t } = useI18n();
-const { user, pending: authPending, fetchMe, logout } = useAuth();
+const { user, pending: authPending, fetchMe } = useAuth();
 const { groups, pending: groupsPending, refresh } = useGroups();
 const { profiles } = useProfiles();
 const showNewGroup = ref(false);
@@ -50,40 +50,7 @@ onMounted(async () => {
     <div class="topbar">
       <div class="brand"><span class="mark">P</span>{{ t("common.appName") }}</div>
       <div class="spacer"></div>
-      <LanguageSwitcher />
-      <div v-if="user" class="me-chip">
-        <div
-          class="avatar"
-          :style="{
-            background: avatarBg(user.id),
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            color: '#fff',
-            fontWeight: 700,
-            fontSize: '11px',
-          }"
-          :title="user.name"
-        >
-          {{ (user.name || "Y").trim().charAt(0).toUpperCase() }}
-        </div>
-        <span>{{ user.name || user.username }}</span>
-        <button
-          v-if="user.role === 'admin'"
-          class="btn btn-sm"
-          style="margin-left: 2px"
-          @click="navigateTo('/admin')"
-        >
-          {{ t("common.admin") }}
-        </button>
-        <button
-          class="btn btn-ghost btn-sm"
-          style="margin-left: 2px"
-          @click="logout"
-        >
-          {{ t("common.logOut") }}
-        </button>
-      </div>
+      <AccountMenu v-if="user" :user="user" />
     </div>
     <main>
       <div v-if="authPending || groupsPending" class="empty">

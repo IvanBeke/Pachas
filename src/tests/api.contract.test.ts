@@ -17,7 +17,7 @@ async function login(username: string, password: string) {
   if (!res.ok) throw new Error(`login failed for ${username}: ${res.status}`);
   return {
     cookie: res.headers.get("set-cookie")?.split(";")[0] ?? "",
-    me: (await res.json()) as { id: string },
+    me: (await res.json()) as { id: string; locale: string },
   };
 }
 
@@ -501,6 +501,51 @@ describe.skipIf(!reachable)("expense deletion authorisation", () => {
   });
 });
 
+describe.skipIf(!reachable)("user profile contract", () => {
+  it("updates name and language, keeps username immutable, and changes password", async () => {
+    const session = await register(`profile${RUN}`, "profile-pass-123");
+    const initial = await api(session.cookie, "GET", "/api/me");
+    expect(initial.status).toBe(200);
+    expect(initial.json.locale).toBe("es");
+
+    const renameUsername = await api(session.cookie, "PATCH", "/api/me", {
+      username: `renamed${RUN}`,
+      name: "Should not be applied",
+    });
+    expect(renameUsername.status).toBe(400);
+
+    const wrongCurrentPassword = await api(session.cookie, "PATCH", "/api/me", {
+      currentPassword: "incorrect-current",
+      newPassword: "profile-pass-456",
+    });
+    expect(wrongCurrentPassword.status).toBe(400);
+
+    const update = await api(session.cookie, "PATCH", "/api/me", {
+      name: "Updated Profile",
+      locale: "en",
+      currentPassword: "profile-pass-123",
+      newPassword: "profile-pass-456",
+    });
+    expect(update.status).toBe(200);
+    expect(update.json).toMatchObject({
+      username: `profile${RUN}`,
+      name: "Updated Profile",
+      locale: "en",
+    });
+
+    const oldPasswordLogin = await fetch(`${BASE}/api/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: `profile${RUN}`, password: "profile-pass-123" }),
+    });
+    expect(oldPasswordLogin.status).toBe(401);
+
+    const newPasswordLogin = await login(`profile${RUN}`, "profile-pass-456");
+    expect(newPasswordLogin.me.id).toBe(session.me.id);
+    expect(newPasswordLogin.me.locale).toBe("en");
+  });
+});
+
 describe.skipIf(!reachable)("group role authorisation", () => {
   let creatorCookie: string;
   let memberCookie: string;
@@ -769,6 +814,38 @@ describe.skipIf(!reachable)("group role authorisation", () => {
       .toBe(404);
     expect((await api(adminCookie, "DELETE", `/api/groups/${gid}/recurring/${rid}`)).status)
       .toBe(200);
+  });
+
+  it("validates recurring split selections and computes saved shares on the server", async () => {
+    const input = {
+      ...expenseInput("recurring split contract"),
+      recurrence: "month",
+      startDate: "2026-09-28",
+      splitType: "exact",
+      values: { [creatorId]: 13, [memberId]: 7 },
+      // A forged final split map is ignored; the server uses the selections.
+      splits: { [creatorId]: 1, [memberId]: 19 },
+    };
+
+    const invalid = await api(creatorCookie, "POST", `/api/groups/${gid}/recurring`, {
+      ...input,
+      values: { [creatorId]: 10, [memberId]: 5 },
+    });
+    expect(invalid.status).toBe(400);
+
+    const created = await api(
+      creatorCookie,
+      "POST",
+      `/api/groups/${gid}/recurring`,
+      input,
+    );
+    expect(created.status).toBe(200);
+    const recurringId = String(created.json);
+    const listed = await api(creatorCookie, "GET", `/api/groups/${gid}/recurring`);
+    const saved = (
+      listed.json as { id: string; splits: Record<string, number> }[]
+    ).find((row) => row.id === recurringId);
+    expect(saved?.splits).toEqual({ [creatorId]: 13, [memberId]: 7 });
   });
 
   it("allows member self-leave but not removing other members", async () => {
