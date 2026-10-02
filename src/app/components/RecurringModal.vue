@@ -30,6 +30,7 @@ const exchangeRate = ref(props.initial?.exchangeRate ?? 1);
 const paidBy = ref(props.initial?.paidBy ?? props.me.id);
 const category = ref(props.initial?.category ?? "general");
 const startDate = ref(props.initial?.startDate ?? todayStr());
+const endDate = ref(props.initial?.endDate ?? "");
 const recurrence = ref<"week" | "month" | "year">(
   props.initial?.recurrence ?? "month",
 );
@@ -82,6 +83,10 @@ function setSplitType(s: typeof splitType.value) {
 }
 
 async function submit() {
+  if (!startDate.value || (endDate.value && endDate.value < startDate.value)) {
+    emit("error", t("recurringModal.invalidDateRange"));
+    return;
+  }
   const amt = parseFloat(amount.value);
   if (!title.value.trim() || !amt || amt <= 0 || !participants.value.length) {
     emit("error", t("expenseModal.errorTitleAmount"));
@@ -133,6 +138,7 @@ async function submit() {
       values,
       recurrence: recurrence.value,
       startDate: startDate.value,
+      endDate: endDate.value || null,
     };
     if (props.initial) {
       await $fetch(
@@ -216,7 +222,11 @@ async function submit() {
         </div>
         <div class="field">
           <label>{{ t("expenseModal.startDate") }}</label>
-          <input v-model="startDate" type="date" />
+          <input v-model="startDate" type="date" required />
+        </div>
+        <div class="field">
+          <label>{{ t("expenseModal.endDate") }}</label>
+          <input v-model="endDate" type="date" :min="startDate" />
         </div>
         <div v-if="showRate" class="field">
           <label>

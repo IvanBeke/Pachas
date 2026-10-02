@@ -738,10 +738,11 @@ describe.skipIf(!reachable)("group role authorisation", () => {
   });
 
   it("applies the same ownership rules to recurring expenses", async () => {
-    const recurringInput = (title: string) => ({
+    const recurringInput = (title: string, endDate?: string) => ({
       ...expenseInput(title),
       recurrence: "month",
       startDate: "2026-09-28",
+      ...(endDate ? { endDate } : {}),
     });
     const own = await api(
       memberCookie,
@@ -755,10 +756,15 @@ describe.skipIf(!reachable)("group role authorisation", () => {
       creatorCookie,
       "POST",
       `/api/groups/${gid}/recurring`,
-      recurringInput("creator recurring"),
+      recurringInput("creator recurring", "2026-12-31"),
     );
     expect(theirs.status).toBe(200);
     const rid = String(theirs.json);
+    const listed = await api(memberCookie, "GET", `/api/groups/${gid}/recurring`);
+    const recurringRows = listed.json as { id: string; endDate: string | null }[];
+    expect(recurringRows.find((row) => row.id === rid)?.endDate).toBe("2026-12-31");
+    const ownRid = String(own.json);
+    expect(recurringRows.find((row) => row.id === ownRid)?.endDate).toBeNull();
     expect((await api(memberCookie, "DELETE", `/api/groups/${gid}/recurring/${rid}`)).status)
       .toBe(404);
     expect((await api(adminCookie, "DELETE", `/api/groups/${gid}/recurring/${rid}`)).status)

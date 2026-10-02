@@ -15,6 +15,13 @@
       "when": 1790886348876,
       "tag": "0001_fresh_wraith",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1790971407672,
+      "tag": "0002_freezing_dark_phoenix",
+      "breakpoints": true
     }
   ]
 }

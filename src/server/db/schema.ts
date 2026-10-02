@@ -182,6 +182,7 @@ export const recurringExpenses = sqliteTable(
     splits: text("splits", { mode: "json" }).$type<Record<string, number>>().notNull(),
     recurrence: text("recurrence").notNull(),
     startDate: text("start_date").notNull(),
+    endDate: text("end_date"),
     createdBy: text("created_by")
       .notNull()
       .references(() => users.id),

@@ -120,7 +120,9 @@
   },
   "recurringModal": {
     "addTitle": "Nuevo gasto recurrente",
-    "editTitle": "Editar gasto recurrente"
+    "editTitle": "Editar gasto recurrente",
+    "noEndDate": "Sin fecha de fin",
+    "invalidDateRange": "La fecha de fin debe ser igual o posterior a la fecha de inicio."
   },
   "groupModal": {
     "title": "Nuevo grupo",
@@ -157,6 +159,7 @@
     "recurrence_month": "cada mes",
     "recurrence_year": "cada año",
     "startDate": "Fecha de inicio",
+    "endDate": "Fecha de fin (opcional)",
     "noItems": "Aún no hay ítems",
     "editItems": "Editar ítems",
     "addItems": "Añadir ítems",

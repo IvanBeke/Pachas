@@ -613,7 +613,9 @@ onMounted(async () => {
                   {{ fmt(r.amountBase, group.baseCurrency) }}
                 </span>
               </span>
-              <span class="amt" style="font-size: 12.5px">{{ r.startDate }}</span>
+              <span class="amt" style="font-size: 12.5px">
+                {{ r.startDate }} – {{ r.endDate || t("recurringModal.noEndDate") }}
+              </span>
               <button
                 v-if="r.createdBy === user.id || isGroupElevated"
                 class="btn btn-sm"

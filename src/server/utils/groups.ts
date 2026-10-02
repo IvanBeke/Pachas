@@ -999,6 +999,7 @@ export interface RecurringExpensePayload {
   splits: Record<string, number>;
   recurrence: string;
   startDate: string;
+  endDate: string | null;
 }
 
 export async function getRecurringExpenses(gid: string) {
@@ -1022,6 +1023,7 @@ export async function getRecurringExpenses(gid: string) {
     splits: r.splits,
     recurrence: r.recurrence,
     startDate: r.startDate,
+    endDate: r.endDate,
     createdBy: r.createdBy,
     createdAt: r.createdAt,
   }));
@@ -1048,6 +1050,7 @@ export async function createRecurringExpense(
     splits: payload.splits,
     recurrence: payload.recurrence,
     startDate: payload.startDate,
+    endDate: payload.endDate,
     createdBy: creatorId,
     createdAt: Date.now(),
   });
@@ -1076,6 +1079,7 @@ export async function updateRecurringExpense(
       splits: payload.splits,
       recurrence: payload.recurrence,
       startDate: payload.startDate,
+      endDate: payload.endDate,
     })
     .where(
       and(

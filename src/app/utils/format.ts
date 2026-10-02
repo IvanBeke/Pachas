@@ -164,6 +164,7 @@ export interface RecurringExpense {
   splits: Record<string, number>;
   recurrence: "week" | "month" | "year";
   startDate: string;
+  endDate: string | null;
   createdBy: string;
   createdAt: number;
 }

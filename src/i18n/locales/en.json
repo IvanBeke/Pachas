@@ -120,7 +120,9 @@
   },
   "recurringModal": {
     "addTitle": "New recurring expense",
-    "editTitle": "Edit recurring expense"
+    "editTitle": "Edit recurring expense",
+    "noEndDate": "No end date",
+    "invalidDateRange": "Enter an end date on or after the start date."
   },
   "groupModal": {
     "title": "New group",
@@ -157,6 +159,7 @@
     "recurrence_month": "every month",
     "recurrence_year": "every year",
     "startDate": "Start date",
+    "endDate": "End date (optional)",
     "noItems": "No items yet",
     "editItems": "Edit items",
     "addItems": "Add items",
