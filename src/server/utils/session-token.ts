@@ -1,4 +1,5 @@
 import { createHmac } from "node:crypto";
+import { sessionSecretProblem } from "./env";
 
 /**
  * Session token handling.
@@ -19,14 +20,14 @@ import { createHmac } from "node:crypto";
  */
 
 export function requireSessionSecret(secret: string | undefined | null): string {
-  const value = (secret ?? "").trim();
-  if (!value) {
+  const problem = sessionSecretProblem(secret ?? undefined);
+  if (problem) {
     throw new Error(
-      "[pachas] SESSION_SECRET is not set. Sessions cannot be verified without it. " +
+      `[pachas] ${problem}. Sessions cannot be verified safely. ` +
         "Set it in .env (openssl rand -hex 32).",
     );
   }
-  return value;
+  return (secret ?? "").trim();
 }
 
 export function sessionDigest(token: string, secret: string): string {

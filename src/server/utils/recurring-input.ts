@@ -1,15 +1,16 @@
-import { createError, type H3Event } from "h3";
-import { readExpenseInput } from "./expense-input";
+import { createError } from "h3";
+import { isDateOnly, readExpenseInput } from "./expense-input";
 import type { RecurringExpensePayload } from "./groups";
 
-const RECURRENCES = ["week", "month", "year"];
+export const RECURRENCES = ["week", "month", "year"] as const;
+export type Recurrence = (typeof RECURRENCES)[number];
 
 export function readRecurringDates(
   startInput: unknown,
   endInput: unknown,
 ): { startDate: string; endDate: string | null } {
-  const startDate = typeof startInput === "string" ? startInput : "";
-  if (!isDateOnly(startDate)) {
+  const startDate = isDateOnly(startInput) ? startInput : "";
+  if (!startDate) {
     throw createError({
       statusCode: 400,
       message: "A valid start date is required.",
@@ -18,7 +19,7 @@ export function readRecurringDates(
 
   let endDate: string | null = null;
   if (endInput !== undefined && endInput !== null && endInput !== "") {
-    if (typeof endInput !== "string" || !isDateOnly(endInput)) {
+    if (!isDateOnly(endInput)) {
       throw createError({ statusCode: 400, message: "A valid end date is required." });
     }
     if (endInput < startDate) {
@@ -33,25 +34,18 @@ export function readRecurringDates(
   return { startDate, endDate };
 }
 
-function isDateOnly(value: string): boolean {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
-  const date = new Date(`${value}T00:00:00.000Z`);
-  return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
-}
-
 /**
- * Validates a recurring-expense body. Recurring expenses are stored with a
- * JSONB split snapshot rather than `expense_splits` rows, so it reuses the
- * expense validator for the amounts (server-computed) and adds the recurrence
- * fields on top.
+ * Validates a recurring-expense body. Recurring templates store a JSON split
+ * snapshot rather than `expense_splits` rows, so it reuses the expense
+ * validator for the amounts (server-computed) and adds the recurrence fields
+ * on top.
  */
-export async function readRecurringInput(
-  event: H3Event,
+export function readRecurringInput(
+  b: Record<string, unknown>,
   memberIds: string[],
   baseCurrency: string,
-): Promise<RecurringExpensePayload> {
-  const b = await readBody(event).catch(() => ({}));
-  const recurrence = String(b.recurrence || "");
+): RecurringExpensePayload {
+  const recurrence = String(b.recurrence || "") as Recurrence;
   const { startDate, endDate } = readRecurringDates(b.startDate, b.endDate);
   if (!RECURRENCES.includes(recurrence)) {
     throw createError({

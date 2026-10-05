@@ -109,6 +109,24 @@ describe("the server computes the splits, it does not accept them", () => {
     expect(out.splits).toEqual({ [A]: 10, [B]: 16 });
   });
 
+  it("splits from the stored bill, ignoring a separate items field", () => {
+    // The stored description is the bill. A different `items` array in the
+    // body used to drive the split, so stored bill and shares could disagree.
+    const bill = [{ name: "Ramen", price: 26, members: [A] }];
+    const out = readExpenseInput(
+      body({
+        splitType: "items",
+        amount: 26,
+        items: [{ name: "Ramen", price: 26, members: [B] }],
+        description: JSON.stringify({ items: bill, tax: 0, tipPercent: 0 }),
+      }),
+      MEMBERS,
+      "EUR",
+    );
+    expect(out.splits[A]).toBe(26);
+    expect(out.splits[B]).toBe(0);
+  });
+
   it("recomputes identically to the client preview", () => {
     // The client previews with the same shared code, so what the user saw is
     // what gets stored. This is the guarantee the shared/ module exists for.
@@ -158,9 +176,17 @@ describe("required fields", () => {
     );
   });
 
-  it("rejects a missing converted amount", () => {
-    expect(err(() => readExpenseInput(body({ amountBase: 0 }), MEMBERS, "EUR"))).toContain(
-      "Invalid converted amount",
+  it("rejects an amount that converts to less than a cent", () => {
+    expect(
+      err(() =>
+        readExpenseInput(body({ currency: "JPY", exchangeRate: 0.001, amount: 1 }), MEMBERS, "EUR"),
+      ),
+    ).toContain("Invalid converted amount");
+  });
+
+  it("rejects an unknown split type instead of storing it", () => {
+    expect(err(() => readExpenseInput(body({ splitType: "foo" }), MEMBERS, "EUR"))).toContain(
+      "Unknown split type",
     );
   });
 
@@ -288,8 +314,13 @@ describe("split validation happens server-side", () => {
 });
 
 describe("normalisation", () => {
-  it("uppercases and truncates the currency code", () => {
-    expect(readExpenseInput(body({ currency: "usd" }), MEMBERS, "EUR").currency).toBe("USD");
+  it("uppercases the currency code and rejects anything that isn't ISO 4217-shaped", () => {
+    expect(
+      readExpenseInput(body({ currency: "usd", exchangeRate: 1 }), MEMBERS, "EUR").currency,
+    ).toBe("USD");
+    expect(err(() => readExpenseInput(body({ currency: "dollars" }), MEMBERS, "EUR"))).toContain(
+      "Currency",
+    );
   });
 
   it("falls back to the group currency when none is given", () => {

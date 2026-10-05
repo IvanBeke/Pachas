@@ -140,7 +140,9 @@
     "totalAmount": "Total: {amount}",
     "andMore": "y {count} más…",
     "alreadyMatched": "ya emparejado",
-    "duplicate_member": "Cada miembro del grupo solo puede emparejarse con un miembro del CSV."
+    "duplicate_member": "Cada miembro del grupo solo puede emparejarse con un miembro del CSV.",
+    "currency_mismatch": "El CSV contiene gastos en {got}, pero este grupo usa {expected}. Solo se pueden importar gastos en la moneda del grupo.",
+    "too_many_rows": "El CSV tiene más de {max} gastos. Divídelo en archivos más pequeños."
   },
   "recurringModal": {
     "addTitle": "Nuevo gasto recurrente",
@@ -296,7 +298,7 @@
     "deleteFailed": "No se pudo eliminar el grupo.",
     "removeHint": "Los gastos en los que ya participó seguirán en el grupo.",
     "currencyNote": "Moneda base",
-    "currencyHint": "Cambiarla solo afecta a cómo se etiqueten los gastos futuros. Los importes ya registrados conservan su moneda original.",
+    "currencyHint": "Puedes cambiarla hasta que se añada el primer gasto del grupo; después queda bloqueada.",
     "save": "Guardar cambios",
     "simplifyTransfers": "Simplificar transferencias",
     "simplifyTransfersHint": "Activado: se compensan los balances del grupo, así que un pago puede pasar por personas que deben y a quienes les deben. Desactivado: se muestra cada deuda pendiente entre dos miembros.",

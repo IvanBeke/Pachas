@@ -8,7 +8,7 @@ import { requireMember, getSettlementPlan } from "../../../../utils/groups";
  */
 export default defineEventHandler(async (event) => {
   const me = await requireUser(event);
-  const gid = String(getRouterParam(event, "gid"));
-  await requireMember(gid, me.id);
-  return getSettlementPlan(gid);
+  const gid = requireParam(event, "gid");
+  const group = await requireMember(gid, me.id);
+  return getSettlementPlan(gid, group.version);
 });

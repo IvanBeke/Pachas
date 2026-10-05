@@ -1,3 +1,5 @@
+import { trustedProxyHops } from "./env";
+
 /**
  * Fixed-window rate limiter, in process memory.
  *
@@ -26,7 +28,7 @@ interface Window {
 
 const windows = new Map<string, Window>();
 
-/** Hard cap on tracked keys, so memory can't be exhausted by key flooding. */
+/** Above this many tracked keys, every access sweeps expired windows. */
 const MAX_KEYS = 10_000;
 
 function sweep(now: number): void {
@@ -89,23 +91,36 @@ export function hit(key: string, limit: number, windowMs: number): RateLimitResu
   };
 }
 
-/** Reads the client's IP, preferring the leftmost `X-Forwarded-For` entry. */
-export function clientIp(event: {
-  node: {
-    req: {
-      headers: Record<string, unknown>;
-      socket?: { remoteAddress?: string | undefined };
+/**
+ * Reads the client's IP.
+ *
+ * `X-Forwarded-For` is client-controlled unless a trusted proxy rewrites it, so
+ * it is ignored unless `trustedHops` (from `TRUST_PROXY`) is set. With N
+ * trusted hops, the client is the Nth entry from the right; anything further
+ * left could have been supplied by the client and is never used.
+ */
+export function clientIp(
+  event: {
+    node: {
+      req: {
+        headers: Record<string, unknown>;
+        socket?: { remoteAddress?: string | undefined };
+      };
     };
-  };
-}): string {
-  const headers = event.node.req.headers;
-  const fwd = headers["x-forwarded-for"];
-  const raw = Array.isArray(fwd) ? fwd[0] : fwd;
-  if (typeof raw === "string" && raw.length) {
-    const first = raw.split(",")[0]?.trim();
-    if (first) return first;
-  }
-  return event.node.req.socket?.remoteAddress ?? "unknown";
+  },
+  trustedHops: number = trustedProxyHops(),
+): string {
+  const socketIp = event.node.req.socket?.remoteAddress ?? "unknown";
+  if (trustedHops <= 0) return socketIp;
+  const fwd = event.node.req.headers["x-forwarded-for"];
+  const raw = Array.isArray(fwd) ? fwd.join(",") : fwd;
+  if (typeof raw !== "string" || !raw.length) return socketIp;
+  const entries = raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (!entries.length) return socketIp;
+  return entries[Math.max(0, entries.length - trustedHops)] ?? socketIp;
 }
 
 /** Test seam: drops all recorded state. */

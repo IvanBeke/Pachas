@@ -5,10 +5,21 @@
  * the user made, and never trusts a client-supplied amount. The client runs
  * this same code purely to render a live preview.
  *
- * Lives in `shared/` so the two copies physically cannot drift.
+ * All arithmetic happens in integer cents (see `money.ts`), so every
+ * successful result sums to the total exactly — there is no tolerance to tune.
+ * Inputs and outputs stay in decimal units because that is what the API and
+ * the forms speak.
  */
+import { allocateCents, fromCents, round2, toCents } from "./money";
 
-export type SplitType = "equal" | "exact" | "percent" | "shares" | "items";
+export { round2 } from "./money";
+
+export const SPLIT_TYPES = ["equal", "exact", "percent", "shares", "items"] as const;
+export type SplitType = (typeof SPLIT_TYPES)[number];
+
+export function isSplitType(value: unknown): value is SplitType {
+  return typeof value === "string" && (SPLIT_TYPES as readonly string[]).includes(value);
+}
 
 export interface ExpenseItem {
   name: string;
@@ -20,8 +31,11 @@ export interface SplitInput {
   splitType: SplitType;
   /** Amount in the group's base currency. */
   amountBase: number;
-  /** Exchange rate applied to convert the expense into base currency. */
-  rate?: number;
+  /**
+   * Amount in the expense currency. Exact splits are typed in this currency,
+   * so they must add up to it. Defaults to `amountBase`.
+   */
+  amount?: number;
   /** Members taking part in the split. */
   participants: string[];
   /** Every group member — `items` mode assigns a share to all of them. */
@@ -44,55 +58,51 @@ export type SplitResult =
   | { ok: true; splits: Record<string, number> }
   | { ok: false; reason: SplitFailure };
 
-/** Round to cents, avoiding float drift. */
-export function round2(n: number): number {
-  return Math.round(n * 100) / 100;
-}
+/** Percentages are not money, so they get a small tolerance for 33.33 × 3. */
+const PERCENT_TOLERANCE = 0.011;
 
 export const sumSplits = (splits: Record<string, number>): number =>
-  round2(Object.values(splits).reduce((a, b) => a + (b ?? 0), 0));
+  fromCents(
+    Object.values(splits).reduce((a, b) => a + toCents(b ?? 0), 0),
+  );
 
-// Per-person totals in expense currency: each item split evenly over its
-// enabled members. Members in no item get 0.
-export function itemsTotals(
+function zip(ids: string[], cents: number[]): Record<string, number> {
+  const out: Record<string, number> = {};
+  ids.forEach((id, i) => {
+    out[id] = fromCents(cents[i] ?? 0);
+  });
+  return out;
+}
+
+/** Per-item shares in cents of the expense currency, keyed by member. */
+function itemsTotalsCents(
   items: ExpenseItem[],
   memberIds: string[],
-): Record<string, number> {
-  const totals: Record<string, number> = {};
-  memberIds.forEach((id) => {
-    totals[id] = 0;
-  });
-  items.forEach((it) => {
-    const enabled = it.members.filter((id) => id in totals);
-    if (!enabled.length || !(it.price > 0)) return;
-    const each = round2(it.price / enabled.length);
-    let running = 0;
+): Map<string, number> {
+  const totals = new Map<string, number>(memberIds.map((id) => [id, 0]));
+  for (const it of items) {
+    const enabled = (Array.isArray(it.members) ? it.members : []).filter((id) =>
+      totals.has(id),
+    );
+    if (!enabled.length || !(it.price > 0)) continue;
+    const parts = allocateCents(toCents(it.price), enabled.map(() => 1));
     enabled.forEach((id, i) => {
-      // The last member absorbs the item's remainder so the per-item total
-      // is exact.
-      const v = i === enabled.length - 1 ? round2(it.price - running) : each;
-      running = round2(running + v);
-      totals[id] = round2((totals[id] ?? 0) + v);
+      totals.set(id, (totals.get(id) ?? 0) + (parts[i] ?? 0));
     });
-  });
+  }
   return totals;
 }
 
 /**
- * Fold penny drift into one participant so shares always reconcile to the
- * total. `pick` is injected so the caller decides who absorbs it (the server
- * is deterministic, the client randomises) and so this stays testable.
+ * Per-person totals in expense currency: each item split evenly over its
+ * enabled members. Members in no item get 0.
  */
-export function assignRemainder(
-  splits: Record<string, number>,
-  target: number,
-  pick: (ids: string[]) => string | undefined,
-): void {
-  const diff = round2(target - sumSplits(splits));
-  if (Math.abs(diff) < 0.005) return;
-  const lucky = pick(Object.keys(splits));
-  if (!lucky) return;
-  splits[lucky] = round2((splits[lucky] ?? 0) + diff);
+export function itemsTotals(
+  items: ExpenseItem[],
+  memberIds: string[],
+): Record<string, number> {
+  const totals = itemsTotalsCents(items, memberIds);
+  return zip(memberIds, memberIds.map((id) => totals.get(id) ?? 0));
 }
 
 /**
@@ -103,109 +113,98 @@ export function assignRemainder(
  */
 export function computeSplits(input: SplitInput): SplitResult {
   const { splitType, amountBase, participants, memberIds, values } = input;
-  const rate = input.rate ?? 1;
-  const splits: Record<string, number> = {};
 
   // A non-finite total is refused here rather than downstream, because it is
   // unrecoverable once it reaches the ledger: `Infinity - Infinity` is `NaN`,
-  // and every comparison against `NaN` is false, so the caller's reconciliation
-  // check would pass it through. This is the shared implementation, so the guard
-  // protects the server and the client preview alike.
-  if (!Number.isFinite(amountBase) || !Number.isFinite(rate)) {
+  // and every comparison against `NaN` is false. This is the shared
+  // implementation, so the guard protects the server and the preview alike.
+  const amount = input.amount ?? amountBase;
+  if (!Number.isFinite(amountBase) || !Number.isFinite(amount)) {
     return { ok: false, reason: "bad_amount" };
   }
-
-  if (splitType === "equal") {
-    if (!participants.length) return { ok: false, reason: "no_participants" };
-    const each = round2(amountBase / participants.length);
-    let running = 0;
-    participants.forEach((id, i) => {
-      // The last participant absorbs the remainder so the total is exact
-      // even when the amount doesn't divide evenly.
-      const v =
-        i === participants.length - 1 ? round2(amountBase - running) : each;
-      running = round2(running + v);
-      splits[id] = v;
-    });
-    return { ok: true, splits };
-  }
-
-  if (splitType === "exact") {
-    if (!participants.length) return { ok: false, reason: "no_participants" };
-    participants.forEach((id) => {
-      splits[id] = round2(values[id] ?? 0);
-    });
-    if (Math.abs(sumSplits(splits) - amountBase) > 0.02) {
-      return { ok: false, reason: "exact_mismatch" };
-    }
-    assignRemainder(splits, amountBase, (ids) => ids[0]);
-    return { ok: true, splits };
-  }
-
-  if (splitType === "percent") {
-    if (!participants.length) return { ok: false, reason: "no_participants" };
-    const pctSum = participants.reduce((a, id) => a + (values[id] ?? 0), 0);
-    if (Math.abs(pctSum - 100) > 0.2) {
-      return { ok: false, reason: "percent_mismatch" };
-    }
-    participants.forEach((id) => {
-      splits[id] = round2((amountBase * (values[id] ?? 0)) / 100);
-    });
-    assignRemainder(splits, amountBase, (ids) => ids[0]);
-    return { ok: true, splits };
-  }
+  const totalCents = toCents(amountBase);
+  const weightsOf = (fallback: number) =>
+    participants.map((id) => values[id] ?? fallback);
+  const weightsValid = (w: number[]) => w.every((v) => Number.isFinite(v) && v >= 0);
 
   if (splitType === "items") {
     const items = input.items ?? [];
     if (!items.length) return { ok: false, reason: "bad_items" };
-    // Items are priced in the expense currency, so convert into base.
-    const totals = itemsTotals(items, memberIds);
-    memberIds.forEach((id) => {
-      splits[id] = round2((totals[id] ?? 0) * rate);
-    });
-    // Fold drift into the largest share.
-    const diff = round2(amountBase - sumSplits(splits));
-    if (Math.abs(diff) >= 0.005) {
-      const target = memberIds.reduce((a, b) =>
-        (splits[a] ?? 0) >= (splits[b] ?? 0) ? a : b,
-      );
-      if (target) splits[target] = round2((splits[target] ?? 0) + diff);
+    // Items are priced in the expense currency. Allocating the base total in
+    // proportion to each person's item subtotal converts currency and spreads
+    // any tax or tip in one exact step.
+    const totals = itemsTotalsCents(items, memberIds);
+    const weights = memberIds.map((id) => totals.get(id) ?? 0);
+    if (!weights.some((w) => w > 0)) return { ok: false, reason: "bad_items" };
+    return { ok: true, splits: zip(memberIds, allocateCents(totalCents, weights)) };
+  }
+
+  if (!participants.length) return { ok: false, reason: "no_participants" };
+
+  if (splitType === "equal") {
+    return {
+      ok: true,
+      splits: zip(participants, allocateCents(totalCents, participants.map(() => 1))),
+    };
+  }
+
+  if (splitType === "exact") {
+    const typed = weightsOf(0);
+    if (!weightsValid(typed)) return { ok: false, reason: "bad_amount" };
+    const typedCents = typed.map(toCents);
+    const typedSum = typedCents.reduce((a, b) => a + b, 0);
+    if (typedSum !== toCents(amount) || typedSum <= 0) {
+      return { ok: false, reason: "exact_mismatch" };
     }
-    return { ok: true, splits };
+    // Typed in the expense currency; proportional allocation converts to base.
+    return { ok: true, splits: zip(participants, allocateCents(totalCents, typedCents)) };
+  }
+
+  if (splitType === "percent") {
+    const pct = weightsOf(0);
+    if (!weightsValid(pct)) return { ok: false, reason: "bad_amount" };
+    const pctSum = pct.reduce((a, b) => a + b, 0);
+    if (Math.abs(pctSum - 100) > PERCENT_TOLERANCE) {
+      return { ok: false, reason: "percent_mismatch" };
+    }
+    return { ok: true, splits: zip(participants, allocateCents(totalCents, pct)) };
   }
 
   // shares: each member's weight is a fraction of the total.
-  const shareSum = participants.reduce((a, id) => a + (values[id] ?? 1), 0);
-  if (shareSum <= 0) {
+  const shares = weightsOf(1);
+  if (!weightsValid(shares) || !(shares.reduce((a, b) => a + b, 0) > 0)) {
     return { ok: false, reason: "no_shares" };
   }
-  participants.forEach((id) => {
-    splits[id] = round2((amountBase * (values[id] ?? 1)) / shareSum);
-  });
-  assignRemainder(splits, amountBase, (ids) => ids[0]);
-  return { ok: true, splits };
+  return { ok: true, splits: zip(participants, allocateCents(totalCents, shares)) };
 }
 
 /**
  * Turns stored shares back into the numbers the `exact` / `percent` inputs
  * expect, so editing an expense pre-fills the form.
  *
- * The database only stores resulting amounts, so `percent` has to be
- * reconstructed by dividing through by the total. Getting this wrong makes the
- * form show "2.05%" for a €30 expense and then fail its own 100% check.
+ * The database only stores resulting amounts in base currency, so `percent`
+ * has to be reconstructed by dividing through by the total, and `exact` is
+ * converted back into the expense currency.
  */
 export function splitsToInputValues(
   splits: Record<string, number>,
   amountBase: number,
   splitType: SplitType,
+  amount: number = amountBase,
 ): Record<string, number> {
-  const out: Record<string, number> = {};
-  for (const [uid, share] of Object.entries(splits)) {
-    if (splitType === "percent" && amountBase > 0) {
-      out[uid] = round2(((share ?? 0) / amountBase) * 100);
-    } else {
-      out[uid] = share ?? 0;
-    }
+  const ids = Object.keys(splits);
+  const shares = ids.map((id) => toCents(splits[id] ?? 0));
+  if (splitType === "percent" && amountBase > 0) {
+    // Hundredths of a percent, allocated so the reconstruction totals 100.
+    const parts = allocateCents(10_000, shares);
+    return zip(ids, parts);
   }
+  if (splitType === "exact" && amountBase > 0 && toCents(amount) !== toCents(amountBase)) {
+    return zip(ids, allocateCents(toCents(amount), shares));
+  }
+  const out: Record<string, number> = {};
+  ids.forEach((id) => {
+    out[id] = round2(splits[id] ?? 0);
+  });
   return out;
 }

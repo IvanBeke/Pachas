@@ -1,10 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  fmt,
-  itemsTotalPrice,
-  splitProportional,
-  type ExpenseItem,
-} from "../app/utils/format";
+import { fmt, type ExpenseItem } from "../app/utils/format";
 import { itemsTotals } from "../app/utils/splits";
 
 describe("fmt", () => {
@@ -18,20 +13,6 @@ describe("fmt", () => {
 
   it("falls back to the code for an unknown currency", () => {
     expect(fmt(5, "ZZZ")).toContain("ZZZ");
-  });
-});
-
-describe("itemsTotalPrice", () => {
-  it("sums item prices", () => {
-    const items: ExpenseItem[] = [
-      { name: "Ramen", price: 20, members: ["a", "b"] },
-      { name: "Gyoza", price: 6, members: ["b"] },
-    ];
-    expect(itemsTotalPrice(items)).toBe(26);
-  });
-
-  it("is zero for an empty basket", () => {
-    expect(itemsTotalPrice([])).toBe(0);
   });
 });
 
@@ -66,26 +47,5 @@ describe("itemsTotals", () => {
 
   it("returns zeros for an empty basket", () => {
     expect(itemsTotals([], ["a", "b"])).toEqual({ a: 0, b: 0 });
-  });
-});
-
-describe("splitProportional", () => {
-  it("divides a total in proportion to weights", () => {
-    const out = splitProportional(100, { a: 1, b: 3 }, ["a", "b"]);
-    expect(out.a).toBeCloseTo(25, 2);
-    expect(out.b).toBeCloseTo(75, 2);
-  });
-
-  it("never loses a cent to rounding", () => {
-    const out = splitProportional(10, { a: 1, b: 1, c: 1 }, ["a", "b", "c"]);
-    expect(Object.values(out).reduce((x, y) => x + y, 0)).toBeCloseTo(10, 2);
-  });
-
-  it("returns zeros for a zero total", () => {
-    expect(splitProportional(0, { a: 1, b: 1 }, ["a", "b"])).toEqual({ a: 0, b: 0 });
-  });
-
-  it("returns zeros when every weight is zero", () => {
-    expect(splitProportional(10, { a: 0, b: 0 }, ["a", "b"])).toEqual({ a: 0, b: 0 });
   });
 });

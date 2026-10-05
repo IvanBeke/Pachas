@@ -2,7 +2,6 @@
 import {
   fmt,
   translatedTitle,
-  type Category,
   type Group,
   type Profile,
 } from "~/utils/format";
@@ -26,20 +25,14 @@ const sample = ref<
 const total = ref(0);
 const skipped = ref(0);
 const totalAmount = ref(0);
-const categories = ref<Category[]>([]);
+const { categories, load: loadCategories } = useCategories();
 const importing = ref(false);
 const fileName = ref("");
 const dragOver = ref(false);
 const fileInput = ref<HTMLInputElement | null>(null);
 const file = ref<File | null>(null);
 
-onMounted(async () => {
-  try {
-    categories.value = await $fetch<Category[]>("/api/categories");
-  } catch {
-    // ignore
-  }
-});
+onMounted(loadCategories);
 
 // The server owns parsing: the file is uploaded once for analysis and again
 // to commit, so amounts are never taken on trust from the browser.

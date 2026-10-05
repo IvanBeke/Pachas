@@ -1,17 +1,20 @@
+name: pachas
+
 services:
   pachas:
     image: ghcr.io/ivanbeke/pachas:latest
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "${PACHAS_BIND:-127.0.0.1}:${PORT:-3000}:3000"
     volumes:
       - pachas-data:/data
     environment:
       PORT: "3000"
       DATABASE_PATH: ${DATABASE_PATH:-/data/pachas.sqlite}
       SESSION_SECRET: ${SESSION_SECRET:?Set SESSION_SECRET in your .env file}
-      ALLOW_REGISTRATION: "true"
-      COOKIE_SECURE: "false"
+      ALLOW_REGISTRATION: ${ALLOW_REGISTRATION:-false}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      TRUST_PROXY: ${TRUST_PROXY:-0}
 
 volumes:
   pachas-data:

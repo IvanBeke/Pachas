@@ -1,7 +1,12 @@
-import { createError } from "h3";
 import { requireUser } from "../../../../utils/auth";
-import { requireMember, importExpenses, type ImportRow } from "../../../../utils/groups";
+import {
+  importExpenses,
+  listCategoryIds,
+  requireMember,
+  type ImportRow,
+} from "../../../../utils/groups";
 import { canGroupAction } from "../../../../utils/group-permissions";
+import { toCents } from "../../../../../shared/money";
 import { analyzeSplitwiseCsv } from "../../../../utils/splitwise";
 import { readImportRequest } from "../../../../utils/import-input";
 
@@ -12,7 +17,7 @@ import { readImportRequest } from "../../../../utils/import-input";
  */
 export default defineEventHandler(async (event) => {
   const me = await requireUser(event);
-  const gid = String(getRouterParam(event, "gid"));
+  const gid = requireParam(event, "gid");
   const group = await requireMember(gid, me.id);
   if (!canGroupAction(me, group, "import")) {
     throw createError({ statusCode: 403, message: "forbidden" });
@@ -20,12 +25,22 @@ export default defineEventHandler(async (event) => {
   // One read of the body: the file and both mapping fields arrive together, and
   // re-reading would re-parse the whole multipart payload each time.
   const { text, fields } = await readImportRequest(event);
-  const memberMapping = (fields.memberMapping ?? {}) as Record<string, string>;
-  const categoryMapping = (fields.categoryMapping ?? {}) as Record<string, string>;
+  const memberMapping = stringRecord(fields.memberMapping, "bad_memberMapping");
+  const categoryMapping = stringRecord(fields.categoryMapping, "bad_categoryMapping");
 
   const analysis = analyzeSplitwiseCsv(text, group.memberIds.length);
   if (!analysis.total) {
     throw createError({ statusCode: 400, message: "no_data" });
+  }
+  // Rows are stored with exchange rate 1, so they must already be in the
+  // group's base currency; converting would need a rate per row.
+  const foreign = analysis.currencies.filter((c) => c !== group.baseCurrency);
+  if (foreign.length) {
+    throw createError({
+      statusCode: 400,
+      message: "currency_mismatch",
+      data: { expected: group.baseCurrency, got: foreign.join(", ") },
+    });
   }
 
   // Every CSV member must map to a real member of this group, and no two CSV
@@ -68,8 +83,11 @@ export default defineEventHandler(async (event) => {
       if (!groupMember || share === undefined) continue;
       splits[groupMember] = share;
     }
-    const total = Object.values(splits).reduce((a, b) => a + b, 0);
-    if (Math.abs(total - r.amount) > 0.05) {
+    const totalCents = Object.values(splits).reduce((a, b) => a + toCents(b), 0);
+    if (
+      !Object.values(splits).every(Number.isFinite) ||
+      totalCents !== toCents(r.amount)
+    ) {
       throw createError({ statusCode: 400, message: "splits_mismatch" });
     }
     rows.push({
@@ -86,3 +104,16 @@ export default defineEventHandler(async (event) => {
   const created = await importExpenses(gid, rows, me.id);
   return { created, skipped: analysis.skipped };
 });
+
+function stringRecord(value: unknown, error: string): Record<string, string> {
+  if (value === undefined) return {};
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw createError({ statusCode: 400, message: error });
+  }
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(value)) {
+    if (typeof v !== "string") throw createError({ statusCode: 400, message: error });
+    out[k] = v;
+  }
+  return out;
+}

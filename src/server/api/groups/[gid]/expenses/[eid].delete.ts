@@ -1,33 +1,13 @@
 import { requireUser } from "../../../../utils/auth";
-import {
-  requireMember,
-  deleteExpenseIfOwner,
-  getExpenseOwner,
-} from "../../../../utils/groups";
-import { canGroupAction } from "../../../../utils/group-permissions";
+import { requireMember, deleteExpenseIfAllowed } from "../../../../utils/groups";
 
 export default defineEventHandler(async (event) => {
   const me = await requireUser(event);
-  const gid = String(getRouterParam(event, "gid"));
-  const eid = String(getRouterParam(event, "eid"));
-  const group = await requireMember(gid, me.id);
-  const ownerId = await getExpenseOwner(gid, eid);
-  if (
-    !ownerId ||
-    !canGroupAction(me, group, { type: "expense.delete", ownerId })
-  ) {
+  const gid = requireParam(event, "gid");
+  const eid = requireParam(event, "eid");
+  await requireMember(gid, me.id);
+  if (!(await deleteExpenseIfAllowed(gid, eid, me.id))) {
     throw createError({ statusCode: 404, message: "Expense not found." });
-  }
-  const ok = await deleteExpenseIfOwner(
-    gid,
-    eid,
-    me.id,
-  );
-  if (!ok) {
-    throw createError({
-      statusCode: 404,
-      message: "Expense not found.",
-    });
   }
   return { ok: true };
 });

@@ -20,8 +20,9 @@ Compose, GitHub workflows, and human-facing docs stay at the repository root.
 - Start development with `docker compose up -d`. Run tests and typecheck with
   `docker compose run --rm --no-deps pachas pnpm test` and
   `docker compose run --rm --no-deps pachas pnpm typecheck`.
-- API contract tests need the app running. Use `PACHAS_API=http://pachas:3000`
-  with `docker compose run --rm --no-deps -e PACHAS_API pachas pnpm test:api`.
+- API contract tests need the app running:
+  `docker compose run --rm --no-deps -e PACHAS_API=http://pachas:3000 pachas pnpm test:api`.
 - Production uses `docker compose -f compose.prod.yaml pull` followed by
   `docker compose -f compose.prod.yaml up -d`; it runs
-  `ghcr.io/ivanbeke/pachas:latest` and persists SQLite data in `pachas-data`.
+  `ghcr.io/ivanbeke/pachas:latest` and persists SQLite data in the
+  `pachas_pachas-data` volume.

@@ -18,10 +18,7 @@ onMounted(async () => {
     return;
   }
   try {
-    const cfg = await $fetch<{ allowRegistration: boolean; hasUsers: boolean }>(
-      "/api/config",
-    );
-    mode.value = cfg.hasUsers ? "login" : "register";
+    const cfg = await $fetch<{ allowRegistration: boolean }>("/api/config");
     regClosed.value = !cfg.allowRegistration;
   } catch {
     // defaults stand

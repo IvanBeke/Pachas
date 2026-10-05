@@ -2,9 +2,9 @@
 import {
   CURRENCIES,
   fmt,
+  parseItems,
   todayStr,
   translatedTitle,
-  type Category,
   type Group,
   type Profile,
   type RecurringExpense,
@@ -12,6 +12,7 @@ import {
 import { useProfiles } from "~/composables/useGroups";
 import {
   computeSplits,
+  round2,
   splitsToInputValues,
   type SplitType,
 } from "~/utils/splits";
@@ -53,18 +54,13 @@ const splitValues = ref<Record<string, number>>(
         props.initial.splits,
         props.initial.amountBase,
         splitType.value,
+        props.initial.amount,
       )
     : {},
 );
 
-const categories = ref<Category[]>([]);
-onMounted(async () => {
-  try {
-    categories.value = await $fetch<Category[]>("/api/categories");
-  } catch {
-    // keep fallback icons
-  }
-});
+const { categories, load: loadCategories } = useCategories();
+onMounted(loadCategories);
 
 const memberIds = computed(() => props.group.memberIds || []);
 const showRate = computed(() => currency.value !== props.group.baseCurrency);
@@ -84,9 +80,9 @@ function splitDefault(id: string): number {
   const n = participants.value.length || 1;
   const amt = amountNum.value;
   if (splitType.value === "exact")
-    return isChecked(id) ? Math.round((amt / n) * 100) / 100 : 0;
+    return isChecked(id) ? round2(amt / n) : 0;
   if (splitType.value === "percent")
-    return isChecked(id) ? Math.round((100 / n) * 100) / 100 : 0;
+    return isChecked(id) ? round2(100 / n) : 0;
   return isChecked(id) ? 1 : 0;
 }
 
@@ -104,17 +100,21 @@ function equalShare(id: string): string {
   return fmt(amountNum.value / (participants.value.length || 1), currency.value);
 }
 
+/** Sum of the typed split values for checked participants. */
+const valueSum = computed(() => {
+  let sum = 0;
+  memberIds.value.forEach((id) => {
+    if (isChecked(id)) sum += Number(splitValues.value[id] ?? splitDefault(id)) || 0;
+  });
+  return round2(sum);
+});
+
 const remainText = computed(() => {
   if (splitType.value === "equal") return "";
   const amountValue = amountNum.value;
-  let sum = 0;
-  memberIds.value.forEach((id) => {
-    if (isChecked(id)) {
-      sum += Number(splitValues.value[id] ?? splitDefault(id)) || 0;
-    }
-  });
+  const sum = valueSum.value;
   if (splitType.value === "exact") {
-    const remaining = Math.round((amountValue - sum) * 100) / 100;
+    const remaining = round2(amountValue - sum);
     if (Math.abs(remaining) < 0.005) return t("expenseModal.splitsMatch");
     return (
       fmt(Math.abs(remaining), currency.value) +
@@ -124,7 +124,7 @@ const remainText = computed(() => {
     );
   }
   if (splitType.value === "percent") {
-    const remaining = Math.round((100 - sum) * 100) / 100;
+    const remaining = round2(100 - sum);
     if (Math.abs(remaining) < 0.005) return t("expenseModal.hundredPercent");
     return (
       Math.abs(remaining) +
@@ -138,25 +138,8 @@ const remainText = computed(() => {
 });
 
 const remainOk = computed(() => {
-  if (splitType.value === "equal") return true;
-  if (splitType.value === "exact") {
-    let sum = 0;
-    memberIds.value.forEach((id) => {
-      if (isChecked(id)) {
-        sum += Number(splitValues.value[id] ?? splitDefault(id)) || 0;
-      }
-    });
-    return Math.abs(amountNum.value - sum) < 0.005;
-  }
-  if (splitType.value === "percent") {
-    let sum = 0;
-    memberIds.value.forEach((id) => {
-      if (isChecked(id)) {
-        sum += Number(splitValues.value[id] ?? splitDefault(id)) || 0;
-      }
-    });
-    return Math.abs(100 - sum) < 0.005;
-  }
+  if (splitType.value === "exact") return valueSum.value === round2(amountNum.value);
+  if (splitType.value === "percent") return Math.abs(100 - valueSum.value) <= 0.011;
   return true;
 });
 
@@ -174,7 +157,7 @@ async function submit() {
     currency.value === props.group.baseCurrency
       ? 1
       : Number(exchangeRate.value) || 1;
-  const amountBase = Math.round(amt * rate * 100) / 100;
+  const amountBase = round2(amt * rate);
   // Defaults mirror what the inputs show, so a missing value behaves the same
   // here as it does on screen.
   const values: Record<string, number> = {};
@@ -184,11 +167,12 @@ async function submit() {
   // Preview only — the server recomputes and is authoritative.
   const result = computeSplits({
     splitType: splitType.value,
+    amount: amt,
     amountBase,
-    rate,
     participants: participants.value,
     memberIds: memberIds.value,
     values,
+    items: parseItems(props.initial?.description ?? "")?.items,
   });
   if (!result.ok) {
     if (result.reason === "exact_mismatch") {
@@ -201,14 +185,14 @@ async function submit() {
     return;
   }
   try {
-    // Send the SELECTION, not the computed amounts. See AGENTS.md.
+    // Send the SELECTION, not the computed amounts. See docs/conventions.md.
     const payload = {
       title: title.value.trim(),
-      description: "",
+      // Itemised templates keep their bill; the modal doesn't edit items.
+      description: props.initial?.description ?? "",
       amount: amt,
       currency: currency.value,
       exchangeRate: rate,
-      amountBase,
       paidBy: paidBy.value,
       category: category.value,
       splitType: splitType.value,

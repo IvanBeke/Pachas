@@ -2,20 +2,16 @@
 import { useAuth } from "~/composables/useAuth";
 import { useProfiles } from "~/composables/useGroups";
 import { useGroupDetail } from "~/composables/useGroupDetail";
-import {
-  fmt,
-  dateLabel,
-  timeAgo,
-  parseItems,
-  type Category,
-  type Expense,
-  type RecurringExpense,
-} from "~/utils/format";
+import type { Expense, RecurringExpense } from "~/utils/format";
 import ExpenseModal from "~/components/ExpenseModal.vue";
 import SettleModal from "~/components/SettleModal.vue";
 import AddMemberModal from "~/components/AddMemberModal.vue";
 import RecurringModal from "~/components/RecurringModal.vue";
 import AccountMenu from "~/components/AccountMenu.vue";
+import ExpensesTab from "~/components/group/ExpensesTab.vue";
+import BalancesTab from "~/components/group/BalancesTab.vue";
+import ActivityTab from "~/components/group/ActivityTab.vue";
+import RecurringTab from "~/components/group/RecurringTab.vue";
 import { GroupRole } from "../../../../shared/group-roles";
 
 const { t } = useI18n();
@@ -26,9 +22,7 @@ const { user, fetchMe } = useAuth();
 const { profiles, nameOf, ensure } = useProfiles();
 const { group, expenses, settlements, balances, transfers, loading, reload } =
   useGroupDetail(gid);
-const categories = ref<Category[]>([]);
-const categoryIcon = (id: string): string =>
-  categories.value.find((c) => String(c.id) === id)?.icon ?? "🧾";
+const { load: loadCategories } = useCategories();
 
 const tab = ref<"expenses" | "balances" | "activity" | "recurring">("expenses");
 const showExpense = ref(false);
@@ -51,61 +45,9 @@ function showToast(msg: string) {
   }, 2400);
 }
 
-function expTitle(e: Pick<Expense, "title" | "description">): string {
-  return e.title || e.description;
-}
-
-// One-line summary for items-split expenses
-// ("3 items · Ramen, Gyoza · +tax · +18% tip").
-// Falls back to the raw description when it isn't an items payload.
-function expSubtitle(e: Expense): string | null {
-  if (e.splitType === "items") {
-    const parsed = parseItems(e.description);
-    if (!parsed) return e.description || null;
-    const names = parsed.items
-      .map((it) => it.name)
-      .filter(Boolean)
-      .slice(0, 3)
-      .join(", ");
-    const n = parsed.items.length;
-    let s = `${n} ${t("expenseModal.splitItems")}` + (names ? ` · ${names}` : "");
-    if (parsed.tax > 0) s += " · +tax";
-    if (parsed.tipPercent > 0) s += ` · +${parsed.tipPercent}% tip`;
-    return s;
-  }
-  return e.title && e.description ? e.description : null;
-}
-
-// Server-provided figures. `balances` is an array; look up by member id.
-function balanceOf(id: string): number {
-  return balances.value.find((b) => b.memberId === id)?.amount ?? 0;
-}
-
-function roleOf(id: string): GroupRole | null {
-  return group.value?.members.find((member) => member.userId === id)?.role ?? null;
-}
-
 const isGroupElevated = computed(() => {
-  const role = user.value ? roleOf(user.value.id) : null;
+  const role = group.value?.members.find((m) => m.userId === user.value?.id)?.role;
   return role === GroupRole.Creator || role === GroupRole.Admin;
-});
-
-const visibleTransfers = computed(() =>
-  isGroupElevated.value
-    ? transfers.value
-    : transfers.value.filter((transfer) => transfer.from === user.value?.id),
-);
-
-const activity = computed(() => {
-  const items: { type: string; ts: number; data: unknown }[] = [];
-  expenses.value.forEach((e) =>
-    items.push({ type: "expense", ts: e.createdAt || 0, data: e }),
-  );
-  settlements.value.forEach((s) =>
-    items.push({ type: "settlement", ts: s.createdAt || 0, data: s }),
-  );
-  items.sort((a, b) => b.ts - a.ts);
-  return items;
 });
 
 function avatarBg(id: string): string {
@@ -118,53 +60,42 @@ function avatarInitial(id: string): string {
   return (profiles.value[id]?.name || "?").trim().charAt(0).toUpperCase();
 }
 
-async function delExpense(eid: string) {
-  if (confirmDelete.value === "e:" + eid) {
-    try {
-      await $fetch(`/api/groups/${gid}/expenses/${eid}`, { method: "DELETE" });
-      await reload();
-    } catch (e: unknown) {
-      showToast((e as Error)?.message || t("group.couldntDelete"));
-    }
+/** Two-click delete: the first click arms, the second (within 3s) confirms. */
+function confirmTwice(key: string, action: () => Promise<void>) {
+  if (confirmDelete.value === key) {
     confirmDelete.value = null;
-  } else {
-    confirmDelete.value = "e:" + eid;
-    setTimeout(() => {
-      if (confirmDelete.value === "e:" + eid) confirmDelete.value = null;
-    }, 3000);
+    action().catch((e: unknown) => showToast((e as Error)?.message || t("group.couldntDelete")));
+    return;
   }
+  confirmDelete.value = key;
+  setTimeout(() => {
+    if (confirmDelete.value === key) confirmDelete.value = null;
+  }, 3000);
 }
 
-async function delSettlement(sid: string) {
-  if (confirmDelete.value === "s:" + sid) {
-    try {
-      await $fetch(`/api/groups/${gid}/settlements/${sid}`, {
-        method: "DELETE",
-      });
-      await reload();
-    } catch (e: unknown) {
-      showToast((e as Error)?.message || t("group.couldntDelete"));
-    }
-    confirmDelete.value = null;
-  } else {
-    confirmDelete.value = "s:" + sid;
-    setTimeout(() => {
-      if (confirmDelete.value === "s:" + sid) confirmDelete.value = null;
-    }, 3000);
-  }
+function delExpense(eid: string) {
+  confirmTwice("e:" + eid, async () => {
+    await $fetch(`/api/groups/${gid}/expenses/${eid}`, { method: "DELETE" });
+    await reload();
+  });
+}
+
+function delSettlement(sid: string) {
+  confirmTwice("s:" + sid, async () => {
+    await $fetch(`/api/groups/${gid}/settlements/${sid}`, { method: "DELETE" });
+    await reload();
+  });
 }
 
 async function loadRecurring() {
   try {
-    recurring.value = await $fetch<RecurringExpense[]>(
-      `/api/groups/${gid}/recurring`,
-    );
+    recurring.value = await $fetch<RecurringExpense[]>(`/api/groups/${gid}/recurring`);
   } catch {
     // ignore
   }
 }
 
-function editRecurring(r: RecurringExpense) {
+function openRecurring(r: RecurringExpense | null) {
   editingRecurring.value = r;
   showRecurringModal.value = true;
 }
@@ -178,6 +109,14 @@ async function delRecurring(rid: string) {
   }
 }
 
+function onRecurringSaved() {
+  showRecurringModal.value = false;
+  editingRecurring.value = null;
+  // Saving may have generated expenses that are already due.
+  void loadRecurring();
+  void reload();
+}
+
 function quickSettle(from: string, to: string) {
   settlePreset.value = { from, to };
   showSettle.value = true;
@@ -188,13 +127,8 @@ function openSettle() {
   showSettle.value = true;
 }
 
-function openEditExpense(e: Expense) {
+function openExpense(e: Expense | null) {
   editingExpense.value = e;
-  showExpense.value = true;
-}
-
-function openNewExpense() {
-  editingExpense.value = null;
   showExpense.value = true;
 }
 
@@ -209,12 +143,7 @@ onMounted(async () => {
     await navigateTo("/login");
     return;
   }
-  await ensure([me.id]);
-  try {
-    categories.value = await $fetch<Category[]>("/api/categories");
-  } catch {
-    // fallback icons
-  }
+  await Promise.all([ensure([me.id]), loadCategories()]);
 });
 </script>
 
@@ -240,22 +169,14 @@ onMounted(async () => {
               <div
                 v-for="id in group.memberIds"
                 :key="id"
-                class="avatar"
-                :style="{
-                  background: avatarBg(id),
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: '#fff',
-                  fontWeight: 700,
-                  fontSize: '11px',
-                }"
+                class="avatar avatar-initial"
+                :style="{ background: avatarBg(id) }"
                 :title="nameOf(id, user)"
               >
                 {{ avatarInitial(id) }}
               </div>
             </span>
-            <button class="btn btn-sm" @click="showAddMember = true">
+            <button v-if="isGroupElevated" class="btn btn-sm" @click="showAddMember = true">
               {{ t("group.addPerson") }}
             </button>
             <button class="btn btn-sm" @click="navigateTo(`/g/${gid}/edit`)">
@@ -299,314 +220,51 @@ onMounted(async () => {
           </button>
         </div>
 
-        <!-- Expenses tab -->
-        <div v-if="tab === 'expenses'">
-          <div v-if="!expenses.length" class="empty">
-            <span class="icon">🧾</span>
-            <h3>{{ t("group.noExpenses") }}</h3>
-            <p>{{ t("group.addFirstExpense") }}</p>
-          </div>
-          <template v-else>
-            <template v-for="(e, i) in expenses" :key="e.id">
-              <div
-                v-if="i === 0 || expenses[i - 1]?.date !== e.date"
-                class="date-label"
-              >
-                {{ dateLabel(e.date, t) }}
-              </div>
-              <div class="expense-row">
-                <div class="expense-cat">{{ categoryIcon(e.category) }}</div>
-                <div class="expense-mid">
-                  <div class="desc">{{ expTitle(e) }}</div>
-                  <div v-if="expSubtitle(e)" class="sub">
-                    {{ expSubtitle(e) }}
-                  </div>
-                  <div class="sub">
-                    {{ nameOf(e.paidBy, user) }} {{ t("group.paid") }}
-                    {{ fmt(e.amountBase, group.baseCurrency)
-                    }}<template
-                      v-if="e.currency && e.currency !== group.baseCurrency"
-                    >
-                      ({{ e.currency }} {{ Math.round(e.amount * 100) / 100 }})</template
-                    >
-                  </div>
-                </div>
-                <div class="expense-right">
-                  <div class="total"></div>
-                  <div class="share">
-                    <template
-                      v-if="
-                        Math.abs(
-                          (e.paidBy === user.id ? e.amountBase : 0) -
-                            ((e.splits || {})[user.id] || 0),
-                        ) < 0.005
-                      "
-                    >
-                      <span class="neu">{{ t("group.notInvolved") }}</span>
-                    </template>
-                    <template
-                      v-else-if="
-                        (e.paidBy === user.id ? e.amountBase : 0) -
-                          ((e.splits || {})[user.id] || 0) >
-                        0
-                      "
-                    >
-                      <span class="pos"
-                        >{{ user.name }} {{ t("group.lent") }}
-                        {{
-                          fmt(
-                            (e.paidBy === user.id ? e.amountBase : 0) -
-                              ((e.splits || {})[user.id] || 0),
-                            group.baseCurrency,
-                          )
-                        }}</span
-                      >
-                    </template>
-                    <template v-else>
-                      <span class="neg"
-                        >{{ user.name }} {{ t("group.owes") }}
-                        {{
-                          fmt(
-                            -(
-                              (e.paidBy === user.id ? e.amountBase : 0) -
-                              ((e.splits || {})[user.id] || 0)
-                            ),
-                            group.baseCurrency,
-                          )
-                        }}</span
-                      >
-                    </template>
-                  </div>
-                  <button
-                    v-if="e.createdBy === user.id || isGroupElevated"
-                    class="expense-edit"
-                    @click="openEditExpense(e)"
-                  >
-                    {{ t("group.edit") }}
-                  </button>
-                  <button
-                    v-if="e.createdBy === user.id || isGroupElevated"
-                    class="expense-del"
-                    @click="delExpense(e.id)"
-                  >
-                    {{ confirmDelete === "e:" + e.id ? t("group.confirmDelete") : t("group.delete") }}
-                  </button>
-                </div>
-              </div>
-            </template>
-          </template>
-        </div>
-
-        <!-- Balances tab -->
-        <div v-if="tab === 'balances'">
-          <div class="section-label">{{ t("group.netBalance") }}</div>
-          <div
-            v-for="id in group.memberIds"
-            :key="id"
-            class="balance-row"
-          >
-            <span class="name">{{ nameOf(id, user) }}</span>
-            <span
-              style="
-                font-size: 12px;
-                color: var(--ink-faint);
-                margin-right: 8px;
-              "
-            >
-              {{
-                Math.abs(balanceOf(id)) < 0.005
-                  ? t("group.settledUp")
-                  : balanceOf(id) > 0
-                    ? t("group.isOwed")
-                    : t("group.owes")
-              }}
-            </span>
-            <span
-              class="amt"
-              :class="
-                Math.abs(balanceOf(id)) < 0.005
-                  ? 'neu'
-                  : balanceOf(id) > 0
-                    ? 'pos'
-                    : 'neg'
-              "
-            >
-              {{ fmt(Math.abs(balanceOf(id)), group.baseCurrency) }}
-            </span>
-          </div>
-          <div class="section-label" style="margin-top: 22px">
-            {{ t("group.suggestedSettlements") }}
-          </div>
-          <div
-            v-if="!visibleTransfers.length"
-            class="empty"
-            style="padding: 30px 10px"
-          >
-            <span class="icon">✅</span>
-            <p>{{ t(isGroupElevated ? "group.everyoneSettled" : "group.noDebtsToSettle") }}</p>
-          </div>
-          <div v-else>
-            <div
-              v-for="(t2, i) in visibleTransfers"
-              :key="i"
-              class="settle-suggest"
-            >
-              <div class="txt">
-                <!--
-                  i18n-t keeps each locale's word order while letting the names
-                  render as components. Slots are interpolated as text nodes,
-                  never as HTML, so a display name can't inject markup.
-                -->
-                <i18n-t keypath="group.settleSuggestion" tag="span">
-                  <template #from><b>{{ nameOf(t2.from, user) }}</b></template>
-                  <template #to><b>{{ nameOf(t2.to, user) }}</b></template>
-                  <template #amount>
-                    {{ fmt(t2.amount, group.baseCurrency) }}
-                  </template>
-                </i18n-t>
-              </div>
-              <button
-                class="btn btn-sm btn-accent"
-                @click="quickSettle(t2.from, t2.to)"
-              >
-                {{ t("group.markPaid") }}
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <!-- Activity tab -->
-        <div v-if="tab === 'activity'">
-          <div v-if="!activity.length" class="empty">
-            <span class="icon">📜</span>
-            <h3>{{ t("group.noActivity") }}</h3>
-          </div>
-          <div v-else>
-            <div
-              v-for="(it, i) in activity"
-              :key="i"
-              class="activity-row"
-            >
-              <div class="dot"></div>
-              <div class="body">
-                <template v-if="it.type === 'expense'">
-                  <b>{{ nameOf((it.data as never as { createdBy: string }).createdBy, user) }}</b>
-                  {{ t("group.added") }} "{{
-                    expTitle(it.data as never as Expense)
-                  }}" —
-                  {{
-                    fmt(
-                      (it.data as never as { amountBase: number }).amountBase,
-                      group.baseCurrency,
-                    )
-                  }}, {{ t("group.paidBy") }}
-                  {{
-                    nameOf(
-                      (it.data as never as { paidBy: string }).paidBy,
-                      user,
-                    )
-                  }}
-                  <div class="when">
-                    {{ timeAgo((it.data as never as { createdAt: number }).createdAt || 0, t) }}
-                  </div>
-                </template>
-                <template v-else>
-                  <b>{{ nameOf((it.data as never as { from: string }).from, user) }}</b>
-                  {{ t("group.paid") }}
-                  <b>{{ nameOf((it.data as never as { to: string }).to, user) }}</b>
-                  {{
-                    fmt(
-                      (it.data as never as { amount: number }).amount,
-                      group.baseCurrency,
-                    )
-                  }}
-                  <template v-if="(it.data as never as { note?: string }).note">
-                    — {{ (it.data as never as { note?: string }).note }}</template
-                  >
-                  <div class="when">
-                    {{ timeAgo((it.data as never as { createdAt: number }).createdAt || 0, t) }}
-                    <template
-                      v-if="
-                         (it.data as never as { createdBy: string }).createdBy ===
-                         user.id
-                      "
-                    >
-                      ·
-                      <a
-                        style="color: var(--negative); cursor: pointer"
-                        @click="
-                          delSettlement((it.data as never as { id: string }).id)
-                        "
-                        >{{
-                          confirmDelete ===
-                          "s:" + (it.data as never as { id: string }).id
-                            ? t("group.confirmDeleteLink")
-                            : t("group.delete")
-                        }}</a
-                      >
-                    </template>
-                  </div>
-                </template>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Recurring tab -->
-        <div v-if="tab === 'recurring'">
-          <div style="margin-bottom: 14px">
-            <button
-              class="btn btn-sm btn-accent"
-              @click="editingRecurring = null; showRecurringModal = true"
-            >
-              + {{ t("group.addRecurring") }}
-            </button>
-          </div>
-          <div v-if="!recurring.length" class="empty">
-            <span class="icon">🔁</span>
-            <h3>{{ t("group.noRecurring") }}</h3>
-            <p>{{ t("group.addRecurringHint") }}</p>
-          </div>
-          <div v-else>
-            <div
-              v-for="r in recurring"
-              :key="r.id"
-              class="balance-row"
-            >
-              <span class="name">
-                {{ r.title }}
-                <span style="font-size: 12px; color: var(--ink-faint)">
-                  · {{ t(`expenseModal.recurrence_${r.recurrence}`) }} ·
-                  {{ fmt(r.amountBase, group.baseCurrency) }}
-                </span>
-              </span>
-              <span class="amt" style="font-size: 12.5px">
-                {{ r.startDate }} – {{ r.endDate || t("recurringModal.noEndDate") }}
-              </span>
-              <button
-                v-if="r.createdBy === user.id || isGroupElevated"
-                class="btn btn-sm"
-                @click="editRecurring(r)"
-              >
-                {{ t("group.edit") }}
-              </button>
-              <button
-                v-if="r.createdBy === user.id || isGroupElevated"
-                class="btn btn-sm btn-ghost"
-                style="color: var(--negative)"
-                @click="delRecurring(r.id)"
-              >
-                {{ t("group.delete") }}
-              </button>
-            </div>
-          </div>
-        </div>
+        <ExpensesTab
+          v-if="tab === 'expenses'"
+          :expenses="expenses"
+          :me="user"
+          :base-currency="group.baseCurrency"
+          :can-manage-all="isGroupElevated"
+          :confirm-delete="confirmDelete"
+          @edit="openExpense"
+          @delete="delExpense"
+        />
+        <BalancesTab
+          v-if="tab === 'balances'"
+          :member-ids="group.memberIds"
+          :balances="balances"
+          :transfers="transfers"
+          :me="user"
+          :base-currency="group.baseCurrency"
+          :is-elevated="isGroupElevated"
+          @settle="quickSettle"
+        />
+        <ActivityTab
+          v-if="tab === 'activity'"
+          :expenses="expenses"
+          :settlements="settlements"
+          :me="user"
+          :base-currency="group.baseCurrency"
+          :confirm-delete="confirmDelete"
+          @delete-settlement="delSettlement"
+        />
+        <RecurringTab
+          v-if="tab === 'recurring'"
+          :recurring="recurring"
+          :me="user"
+          :base-currency="group.baseCurrency"
+          :can-manage-all="isGroupElevated"
+          @add="openRecurring(null)"
+          @edit="openRecurring"
+          @delete="delRecurring"
+        />
       </template>
     </main>
     <div v-if="group" class="fab-bar">
       <div class="inner">
         <button class="fab" @click="openSettle">{{ t("group.settleUp") }}</button>
-        <button class="fab primary" @click="openNewExpense">
+        <button class="fab primary" @click="openExpense(null)">
           {{ t("group.addExpense") }}
         </button>
       </div>
@@ -656,13 +314,20 @@ onMounted(async () => {
       :me="user"
       :initial="editingRecurring"
       @close="showRecurringModal = false; editingRecurring = null"
-      @saved="
-        showRecurringModal = false;
-        editingRecurring = null;
-        loadRecurring();
-      "
+      @saved="onRecurringSaved"
       @error="showToast($event)"
     />
     <div v-if="toast" class="toast">{{ toast }}</div>
   </div>
 </template>
+
+<style scoped>
+.avatar-initial {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-weight: 700;
+  font-size: 11px;
+}
+</style>

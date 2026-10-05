@@ -1,6 +1,6 @@
 import bcrypt from "bcryptjs";
 import { clientIp, hit, peek } from "../utils/rate-limit";
-import { findUserByUsername, createSession, publicUser } from "../utils/auth";
+import { findUserByUsername, createSession, selfUser } from "../utils/auth";
 
 /**
  * Per-account does the real work against credential stuffing and is tight: ten
@@ -19,6 +19,12 @@ import { findUserByUsername, createSession, publicUser } from "../utils/auth";
  */
 const PER_IP = { limit: 200, windowMs: 5 * 60_000 };
 const PER_ACCOUNT = { limit: 10, windowMs: 5 * 60_000 };
+/**
+ * Global ceiling per account, across all sources. Much looser than the
+ * per-source bucket so a third party can't lock a user out by spraying wrong
+ * passwords from one address, but still bounds a distributed guessing attack.
+ */
+const PER_ACCOUNT_GLOBAL = { limit: 100, windowMs: 15 * 60_000 };
 
 /**
  * A real bcrypt hash of a value nobody can supply, used to spend the same CPU
@@ -43,12 +49,22 @@ function tooMany(retryAfter: number) {
 export default defineEventHandler(async (event) => {
   const body = await readBody(event).catch(() => ({}));
   const username = String(body?.username || "").trim();
+  // bcrypt ignores bytes past 72; reject instead of silently truncating.
   const password = String(body?.password || "");
+  if (Buffer.byteLength(password, "utf8") > 72) {
+    throw createError({
+      statusCode: 401,
+      message: "Incorrect username or password.",
+    });
+  }
 
   // Keyed on the submitted username, normalised the same way as the lookup, so
   // `Alice` and `alice` share a bucket.
-  const ipKey = `login:ip:${clientIp(event)}`;
-  const userKey = `login:user:${username.toLowerCase()}`;
+  const ip = clientIp(event);
+  const name = username.toLowerCase();
+  const ipKey = `login:ip:${ip}`;
+  const userKey = `login:user:${ip}:${name}`;
+  const globalKey = `login:user:${name}`;
 
   // Checked before the hash, so a blocked client is rejected without making us
   // spend any CPU on it.
@@ -56,6 +72,12 @@ export default defineEventHandler(async (event) => {
   if (!ipBlocked.ok) throw tooMany(ipBlocked.retryAfter);
   const userBlocked = peek(userKey, PER_ACCOUNT.limit, PER_ACCOUNT.windowMs);
   if (!userBlocked.ok) throw tooMany(userBlocked.retryAfter);
+  const globalBlocked = peek(
+    globalKey,
+    PER_ACCOUNT_GLOBAL.limit,
+    PER_ACCOUNT_GLOBAL.windowMs,
+  );
+  if (!globalBlocked.ok) throw tooMany(globalBlocked.retryAfter);
 
   const u = await findUserByUsername(username);
 
@@ -68,6 +90,7 @@ export default defineEventHandler(async (event) => {
   if (!u || !ok) {
     hit(ipKey, PER_IP.limit, PER_IP.windowMs);
     hit(userKey, PER_ACCOUNT.limit, PER_ACCOUNT.windowMs);
+    hit(globalKey, PER_ACCOUNT_GLOBAL.limit, PER_ACCOUNT_GLOBAL.windowMs);
     // One message for both failure modes, so the response never says which.
     throw createError({
       statusCode: 401,
@@ -75,5 +98,5 @@ export default defineEventHandler(async (event) => {
     });
   }
   await createSession(event, u.id);
-  return publicUser(u);
+  return selfUser(u);
 });

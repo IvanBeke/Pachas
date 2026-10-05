@@ -10,8 +10,8 @@
     "preview": "nuxt preview",
     "postinstall": "nuxt prepare",
     "db:generate": "nuxt db generate",
-    "db:migrate": "nuxt db migrate",
-    "test": "vitest run",
+    "make-admin": "node scripts/make-admin.mjs",
+    "test": "vitest run --project unit",
     "test:watch": "vitest",
     "test:api": "vitest run --project api",
     "typecheck": "nuxt typecheck"
@@ -35,11 +35,8 @@
     "h3": "^1.15.11"
   },
   "devDependencies": {
-    "@nuxt/test-utils": "^4.3.2",
     "@nuxthub/core": "^0.10.8",
-    "@vue/test-utils": "^2.5.1",
     "drizzle-kit": "^0.31.11",
-    "happy-dom": "^20.14.5",
     "nuxt": "^4.5.2",
     "typescript": "^6.0.3",
     "vitest": "^5.0.2",

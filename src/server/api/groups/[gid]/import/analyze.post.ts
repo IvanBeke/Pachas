@@ -11,7 +11,7 @@ import { readImportRequest } from "../../../../utils/import-input";
  */
 export default defineEventHandler(async (event) => {
   const me = await requireUser(event);
-  const gid = String(getRouterParam(event, "gid"));
+  const gid = requireParam(event, "gid");
   const group = await requireMember(gid, me.id);
   if (!canGroupAction(me, group, "import")) {
     throw createError({ statusCode: 403, message: "forbidden" });
@@ -19,9 +19,18 @@ export default defineEventHandler(async (event) => {
   const { text } = await readImportRequest(event);
 
   const analysis = analyzeSplitwiseCsv(text, group.memberIds.length);
+  const foreign = analysis.currencies.filter((c) => c !== group.baseCurrency);
+  if (foreign.length) {
+    throw createError({
+      statusCode: 400,
+      message: "currency_mismatch",
+      data: { expected: group.baseCurrency, got: foreign.join(", ") },
+    });
+  }
   return {
     members: analysis.members,
     categories: analysis.categories,
+    currencies: analysis.currencies,
     total: analysis.total,
     skipped: analysis.skipped,
     totalAmount: analysis.totalAmount,

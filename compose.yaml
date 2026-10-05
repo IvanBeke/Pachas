@@ -1,10 +1,12 @@
+name: pachas
+
 services:
   pachas:
     image: ghcr.io/pnpm/pnpm:12
     working_dir: /app
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     volumes:
       - ./src:/app
       - pachas-dev-node-modules:/app/node_modules
@@ -16,9 +18,16 @@ services:
       SESSION_SECRET: ${SESSION_SECRET:?Set SESSION_SECRET in your .env file}
       ALLOW_REGISTRATION: "true"
       COOKIE_SECURE: "false"
+      TRUST_PROXY: "0"
       PACHAS_DEV_USE_POLLING: ${PACHAS_DEV_USE_POLLING:-true}
     entrypoint: ["/bin/sh", "/app/scripts/dev-entrypoint.sh"]
     command: ["pnpm", "dev", "--host", "0.0.0.0"]
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:3000/api/health"]
+      interval: 15s
+      timeout: 5s
+      start_period: 120s
+      retries: 3
 
 volumes:
   pachas-dev-node-modules:

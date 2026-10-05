@@ -140,7 +140,9 @@
     "totalAmount": "Total: {amount}",
     "andMore": "and {count} more…",
     "alreadyMatched": "already matched",
-    "duplicate_member": "Each group member can only be matched to one CSV member."
+    "duplicate_member": "Each group member can only be matched to one CSV member.",
+    "currency_mismatch": "The CSV contains expenses in {got}, but this group uses {expected}. Only expenses in the group's currency can be imported.",
+    "too_many_rows": "The CSV has more than {max} expenses. Split it into smaller files."
   },
   "recurringModal": {
     "addTitle": "New recurring expense",
@@ -296,7 +298,7 @@
     "deleteFailed": "Couldn't delete the group.",
     "removeHint": "Expenses they've already been part of stay in the group.",
     "currencyNote": "Base currency",
-    "currencyHint": "Changing this only affects how future expenses are labelled. Amounts already recorded keep their original currency.",
+    "currencyHint": "You can change this until the group's first expense is added; after that it is locked.",
     "save": "Save changes",
     "simplifyTransfers": "Simplify transfers",
     "simplifyTransfersHint": "On: net balances across the group, so a payment may pass through people who owe and are owed. Off: show each outstanding debt between a pair of members.",

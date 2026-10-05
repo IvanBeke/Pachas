@@ -14,7 +14,7 @@ import {
  * user — the one place a bearer credential would sit in plaintext. These
  * tests pin the digest that prevents that.
  */
-const SECRET = "test-secret-not-the-real-one";
+const SECRET = "test-secret-not-the-real-one-0123456789";
 
 describe("requireSessionSecret", () => {
   it("accepts a configured secret", () => {
@@ -31,7 +31,14 @@ describe("requireSessionSecret", () => {
   });
 
   it("trims surrounding whitespace", () => {
-    expect(requireSessionSecret("  abc  ")).toBe("abc");
+    expect(requireSessionSecret(`  ${SECRET}  `)).toBe(SECRET);
+  });
+
+  it("rejects short secrets and the .env.example placeholder", () => {
+    expect(() => requireSessionSecret("short")).toThrow(/32 bytes/);
+    expect(() =>
+      requireSessionSecret("change-this-to-a-long-random-string"),
+    ).toThrow(/placeholder/);
   });
 });
 

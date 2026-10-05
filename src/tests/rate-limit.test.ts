@@ -97,18 +97,28 @@ describe("clientIp", () => {
     },
   });
 
-  it("prefers the leftmost X-Forwarded-For entry", () => {
+  it("ignores X-Forwarded-For unless a proxy is trusted", () => {
     expect(
-      clientIp(req({ "x-forwarded-for": "203.0.113.7, 10.0.0.1" })),
+      clientIp(req({ "x-forwarded-for": "203.0.113.7" }), 0),
+    ).toBe("10.0.0.5");
+  });
+
+  it("takes the entry added by the trusted proxy, not a spoofed one", () => {
+    // The client sent "1.2.3.4"; the one trusted proxy appended the real peer.
+    expect(
+      clientIp(req({ "x-forwarded-for": "1.2.3.4, 203.0.113.7" }), 1),
+    ).toBe("203.0.113.7");
+    expect(
+      clientIp(req({ "x-forwarded-for": "1.2.3.4, 203.0.113.7, 10.0.0.1" }), 2),
     ).toBe("203.0.113.7");
   });
 
   it("falls back to the socket address", () => {
-    expect(clientIp(req({}))).toBe("10.0.0.5");
+    expect(clientIp(req({}), 1)).toBe("10.0.0.5");
   });
 
   it("handles an array header value", () => {
-    expect(clientIp(req({ "x-forwarded-for": ["198.51.100.9"] }))).toBe(
+    expect(clientIp(req({ "x-forwarded-for": ["198.51.100.9"] }), 1)).toBe(
       "198.51.100.9",
     );
   });

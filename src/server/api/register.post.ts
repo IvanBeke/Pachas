@@ -2,25 +2,18 @@ import { randomUUID } from "node:crypto";
 import bcrypt from "bcryptjs";
 import { sql } from "drizzle-orm";
 import { clientIp, hit } from "../utils/rate-limit";
+import { allowRegistration } from "../utils/env";
+import { passwordProblem } from "../utils/password";
 import { runtimeDb as db } from "../utils/client";
 import { users } from "../db/schema";
 import {
-  findUserByUsername,
   findUserById,
   createSession,
-  publicUser,
+  selfUser,
 } from "../utils/auth";
 
 function validUsername(s: unknown) {
   return typeof s === "string" && /^[a-zA-Z0-9._-]{3,32}$/.test(s);
-}
-
-function allowRegistration(): boolean {
-  const v =
-    useRuntimeConfig().allowRegistration ??
-    process.env.ALLOW_REGISTRATION ??
-    "true";
-  return String(v).toLowerCase() !== "false";
 }
 
 export default defineEventHandler(async (event) => {
@@ -47,36 +40,47 @@ export default defineEventHandler(async (event) => {
         "Username must be 3-32 characters: letters, numbers, dots, dashes, underscores.",
     });
   }
-  if (typeof password !== "string" || password.length < 8) {
+  const pwProblem = passwordProblem(password);
+  if (pwProblem) {
     throw createError({
       statusCode: 400,
-      message: "Password must be at least 8 characters.",
-    });
-  }
-  if (await findUserByUsername(username)) {
-    throw createError({
-      statusCode: 409,
-      message: "That username is already taken.",
+      message:
+        pwProblem === "too_long"
+          ? "Password must be at most 72 bytes."
+          : "Password must be at least 8 characters.",
     });
   }
   const displayName =
     (name || username).toString().trim().slice(0, 60) || username;
   const passwordHash = await bcrypt.hash(password, 10);
   const uid = randomUUID();
-  await db.transaction(async (tx) => {
-    const result = await tx
-      .select({ count: sql<number>`count(*)` })
-      .from(users);
+  // Site admins are only created with `pnpm make-admin <username>`; the first
+  // account is not promoted automatically, so an exposed fresh install can't be
+  // claimed by whoever registers first.
+  const taken = await db.transaction(async (tx) => {
+    const existing = await tx
+      .select({ id: users.id })
+      .from(users)
+      .where(sql`lower(${users.username}) = lower(${username})`)
+      .limit(1);
+    if (existing.length) return true;
     await tx.insert(users).values({
       id: uid,
       username,
       name: displayName,
       passwordHash,
-      role: (result[0]?.count ?? 0) === 0 ? "admin" : "user",
+      role: "user",
       createdAt: Date.now(),
     });
+    return false;
   }, { behavior: "immediate" });
+  if (taken) {
+    throw createError({
+      statusCode: 409,
+      message: "That username is already taken.",
+    });
+  }
   const u = await findUserById(uid);
   await createSession(event, uid);
-  return publicUser(u!);
+  return selfUser(u!);
 });

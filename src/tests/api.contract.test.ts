@@ -21,6 +21,10 @@ async function login(username: string, password: string) {
   };
 }
 
+/**
+ * Every account this suite registers starts with `__t`, which
+ * `scripts/cleanup-test-data.mjs` matches exactly. Keep it that way.
+ */
 const RUN = `${Date.now().toString(36)}${Math.floor(Math.random() * 1e4).toString(36)}`;
 
 async function register(username: string, password: string) {
@@ -67,8 +71,8 @@ describe.skipIf(!reachable)("server-authoritative split computation", () => {
   let memberB: string;
 
   beforeAll(async () => {
-    const creator = await register(`own${RUN}splitcreator`, "split-pass-123");
-    const member = await register(`oth${RUN}splitmember`, "split-pass-456");
+    const creator = await register(`__to${RUN}splitcreator`, "split-pass-123");
+    const member = await register(`__th${RUN}splitmember`, "split-pass-456");
     cookie = creator.cookie;
     memberA = creator.me.id;
     memberB = member.me.id;
@@ -197,10 +201,10 @@ describe.skipIf(!reachable)("expense deletion authorisation", () => {
   let gid: string;
 
   beforeAll(async () => {
-    const a = await register(`own${RUN}`, "owner-pass-1");
+    const a = await register(`__to${RUN}`, "owner-pass-1");
     ownerCookie = a.cookie;
     ownerId = a.me.id;
-    const b = await register(`oth${RUN}`, "other-pass-1");
+    const b = await register(`__th${RUN}`, "other-pass-1");
     otherCookie = b.cookie;
     otherId = b.me.id;
 
@@ -280,7 +284,7 @@ describe.skipIf(!reachable)("expense deletion authorisation", () => {
 
   it("stops a non-member deleting an expense", async () => {
     const id = await createOwned("outsider");
-    const stranger = await register(`str${RUN}`, "stranger-pass-1");
+    const stranger = await register(`__ts${RUN}`, "stranger-pass-1");
     const r = await api(stranger.cookie, "DELETE", `/api/groups/${gid}/expenses/${id}`);
     expect([403, 404]).toContain(r.status);
     expect((await listExpenses(ownerCookie)).some((e) => e.id === id)).toBe(true);
@@ -295,7 +299,7 @@ describe.skipIf(!reachable)("expense deletion authorisation", () => {
   });
 
   it("issues a random bearer cookie and revokes it on logout", async () => {
-    const session = await register(`own${RUN}sess`, "sess-pass-123");
+    const session = await register(`__to${RUN}sess`, "sess-pass-123");
     const token = session.cookie.split("=")[1] ?? "";
     expect(token).toMatch(/^[0-9a-f]{64}$/);
 
@@ -303,7 +307,7 @@ describe.skipIf(!reachable)("expense deletion authorisation", () => {
     expect(me.status).toBe(200);
 
     const forged = await api(
-      `pachas.sid=${token.slice(0, 63)}f`,
+      `pachas.sid=${token.slice(0, 63)}${token.endsWith("f") ? "0" : "f"}`,
       "GET",
       "/api/me",
     );
@@ -324,7 +328,7 @@ describe.skipIf(!reachable)("expense deletion authorisation", () => {
   });
 
   it("rate limits repeated failed logins", async () => {
-    const username = `own${RUN}brute`;
+    const username = `__to${RUN}brute`;
     let sawRateLimit = false;
     for (let i = 0; i < 15; i++) {
       const res = await fetch(`${BASE}/api/login`, {
@@ -342,7 +346,7 @@ describe.skipIf(!reachable)("expense deletion authorisation", () => {
   });
 
   it("does not rate limit a successful login on a fresh account", async () => {
-    const username = `own${RUN}ok`;
+    const username = `__to${RUN}ok`;
     const created = await register(username, "repeat-pass-123");
     expect(created.cookie.length).toBeGreaterThan(0);
     for (let i = 0; i < 5; i++) {
@@ -375,8 +379,8 @@ describe.skipIf(!reachable)("expense deletion authorisation", () => {
     expect(r.status).toBe(400);
   });
 
-  it("lets any group member add another member with the member role", async () => {
-    const outsider = await register(`oth${RUN}add`, "add-pass-123");
+  it("lets the creator add members but not plain members", async () => {
+    const outsider = await register(`__th${RUN}add`, "add-pass-123");
 
     const created = await api(ownerCookie, "POST", "/api/groups", {
       name: `${GROUP_NAME}add`,
@@ -391,9 +395,7 @@ describe.skipIf(!reachable)("expense deletion authorisation", () => {
       `/api/groups/${addGid}/members`,
       { userId: outsider.me.id },
     );
-    expect(asMember.status).toBe(200);
-    expect((asMember.json as { members: { userId: string; role: string }[] }).members)
-      .toContainEqual({ userId: outsider.me.id, role: "member" });
+    expect(asMember.status).toBe(403);
 
     const asCreator = await api(
       ownerCookie,
@@ -402,6 +404,8 @@ describe.skipIf(!reachable)("expense deletion authorisation", () => {
       { userId: outsider.me.id },
     );
     expect(asCreator.status).toBe(200);
+    expect((asCreator.json as { members: { userId: string; role: string }[] }).members)
+      .toContainEqual({ userId: outsider.me.id, role: "member" });
   });
 
   it("lets a member leave but prevents removing other members or the creator", async () => {
@@ -503,7 +507,7 @@ describe.skipIf(!reachable)("expense deletion authorisation", () => {
 
 describe.skipIf(!reachable)("user profile contract", () => {
   it("updates name and language, keeps username immutable, and changes password", async () => {
-    const session = await register(`profile${RUN}`, "profile-pass-123");
+    const session = await register(`__tp${RUN}`, "profile-pass-123");
     const initial = await api(session.cookie, "GET", "/api/me");
     expect(initial.status).toBe(200);
     expect(initial.json.locale).toBe("es");
@@ -528,7 +532,7 @@ describe.skipIf(!reachable)("user profile contract", () => {
     });
     expect(update.status).toBe(200);
     expect(update.json).toMatchObject({
-      username: `profile${RUN}`,
+      username: `__tp${RUN}`,
       name: "Updated Profile",
       locale: "en",
     });
@@ -536,11 +540,11 @@ describe.skipIf(!reachable)("user profile contract", () => {
     const oldPasswordLogin = await fetch(`${BASE}/api/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username: `profile${RUN}`, password: "profile-pass-123" }),
+      body: JSON.stringify({ username: `__tp${RUN}`, password: "profile-pass-123" }),
     });
     expect(oldPasswordLogin.status).toBe(401);
 
-    const newPasswordLogin = await login(`profile${RUN}`, "profile-pass-456");
+    const newPasswordLogin = await login(`__tp${RUN}`, "profile-pass-456");
     expect(newPasswordLogin.me.id).toBe(session.me.id);
     expect(newPasswordLogin.me.locale).toBe("en");
   });
@@ -561,12 +565,12 @@ describe.skipIf(!reachable)("group role authorisation", () => {
   let gid: string;
 
   beforeAll(async () => {
-    const creator = await register(`own${RUN}rolecreator`, "creator-pass-1");
-    const member = await register(`oth${RUN}rolemember`, "member-pass-1");
-    const admin = await register(`own${RUN}roleadmin`, "admin-pass-1");
-    const candidate = await register(`oth${RUN}rolecandidate`, "candidate-pass-1");
-    const outsider = await register(`own${RUN}roleoutsider`, "outsider-pass-1");
-    const unaffiliated = await register(`oth${RUN}roleunaffiliated`, "unaffiliated-pass-1");
+    const creator = await register(`__to${RUN}rolecreator`, "creator-pass-1");
+    const member = await register(`__th${RUN}rolemember`, "member-pass-1");
+    const admin = await register(`__to${RUN}roleadmin`, "admin-pass-1");
+    const candidate = await register(`__th${RUN}rolecandidate`, "candidate-pass-1");
+    const outsider = await register(`__to${RUN}roleoutsider`, "outsider-pass-1");
+    const unaffiliated = await register(`__th${RUN}roleunaffiliated`, "unaffiliated-pass-1");
     creatorCookie = creator.cookie;
     creatorId = creator.me.id;
     memberCookie = member.cookie;
@@ -661,9 +665,16 @@ describe.skipIf(!reachable)("group role authorisation", () => {
     expect(group.createdBy).toBe(creatorId);
   });
 
-  it("allows members to add members, always with the member role", async () => {
-    const added = await api(
+  it("lets group admins add members, always with the member role", async () => {
+    const asMember = await api(
       memberCookie,
+      "POST",
+      `/api/groups/${gid}/members`,
+      { userId: outsiderId },
+    );
+    expect(asMember.status).toBe(403);
+    const added = await api(
+      adminCookie,
       "POST",
       `/api/groups/${gid}/members`,
       { userId: outsiderId, role: "admin" },
@@ -786,7 +797,8 @@ describe.skipIf(!reachable)("group role authorisation", () => {
     const recurringInput = (title: string, endDate?: string) => ({
       ...expenseInput(title),
       recurrence: "month",
-      startDate: "2026-09-28",
+      // In the future, so no occurrence is generated and balances stay clean.
+      startDate: "2099-01-01",
       ...(endDate ? { endDate } : {}),
     });
     const own = await api(
@@ -801,13 +813,13 @@ describe.skipIf(!reachable)("group role authorisation", () => {
       creatorCookie,
       "POST",
       `/api/groups/${gid}/recurring`,
-      recurringInput("creator recurring", "2026-12-31"),
+      recurringInput("creator recurring", "2099-12-31"),
     );
     expect(theirs.status).toBe(200);
     const rid = String(theirs.json);
     const listed = await api(memberCookie, "GET", `/api/groups/${gid}/recurring`);
     const recurringRows = listed.json as { id: string; endDate: string | null }[];
-    expect(recurringRows.find((row) => row.id === rid)?.endDate).toBe("2026-12-31");
+    expect(recurringRows.find((row) => row.id === rid)?.endDate).toBe("2099-12-31");
     const ownRid = String(own.json);
     expect(recurringRows.find((row) => row.id === ownRid)?.endDate).toBeNull();
     expect((await api(memberCookie, "DELETE", `/api/groups/${gid}/recurring/${rid}`)).status)
@@ -820,7 +832,8 @@ describe.skipIf(!reachable)("group role authorisation", () => {
     const input = {
       ...expenseInput("recurring split contract"),
       recurrence: "month",
-      startDate: "2026-09-28",
+      // In the future, so no occurrence is generated and balances stay clean.
+      startDate: "2099-01-01",
       splitType: "exact",
       values: { [creatorId]: 13, [memberId]: 7 },
       // A forged final split map is ignored; the server uses the selections.
@@ -961,5 +974,168 @@ describe.skipIf(!reachable)("group role authorisation", () => {
     expect((await api(creatorCookie, "DELETE", `/api/groups/${gid}`)).status).toBe(403);
     expect((await api(adminCookie, "DELETE", `/api/groups/${gid}`)).status).toBe(403);
     expect((await api(candidateCookie, "DELETE", `/api/groups/${gid}`)).status).toBe(200);
+  });
+});
+
+describe.skipIf(!reachable)("request guard", () => {
+  it("rejects cross-site writes", async () => {
+    const res = await fetch(`${BASE}/api/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Sec-Fetch-Site": "cross-site" },
+      body: JSON.stringify({ username: "x", password: "y" }),
+    });
+    expect(res.status).toBe(403);
+    const fromOrigin = await fetch(`${BASE}/api/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Origin: "http://evil.example" },
+      body: JSON.stringify({ username: "x", password: "y" }),
+    });
+    expect(fromOrigin.status).toBe(403);
+  });
+
+  it("rejects form-encoded writes", async () => {
+    const res = await fetch(`${BASE}/api/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: "username=x&password=y",
+    });
+    expect(res.status).toBe(415);
+  });
+
+  it("rejects oversized JSON bodies", async () => {
+    const res = await fetch(`${BASE}/api/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: "x", password: "y".repeat(70_000) }),
+    });
+    expect(res.status).toBe(413);
+  });
+
+  it("does not expose whether users exist", async () => {
+    const res = await fetch(`${BASE}/api/config`);
+    expect(await res.json()).not.toHaveProperty("hasUsers");
+  });
+});
+
+describe.skipIf(!reachable)("session lifecycle", () => {
+  it("signs out other sessions when the password changes", async () => {
+    const name = `__to${RUN}sessrevoke`;
+    const first = await register(name, "first-pass-123");
+    const second = await login(name, "first-pass-123");
+    const changed = await fetch(`${BASE}/api/me`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", cookie: first.cookie },
+      body: JSON.stringify({
+        currentPassword: "first-pass-123",
+        newPassword: "second-pass-123",
+      }),
+    });
+    expect(changed.status).toBe(200);
+    const rotated =
+      changed.headers
+        .getSetCookie()
+        .map((c) => c.split(";")[0] ?? "")
+        .find((c) => !c.endsWith("=")) ?? "";
+    expect(rotated).not.toBe(first.cookie);
+    expect((await api(second.cookie, "GET", "/api/me")).status).toBe(401);
+    expect((await api(first.cookie, "GET", "/api/me")).status).toBe(401);
+    expect((await api(rotated, "GET", "/api/me")).status).toBe(200);
+  });
+
+  it("does not leak the site role of other users", async () => {
+    const a = await register(`__to${RUN}rolevis`, "role-pass-123");
+    const res = await api(a.cookie, "GET", `/api/users?ids=${a.me.id}`);
+    expect((res.json as unknown as Record<string, unknown>[])[0]).not.toHaveProperty("role");
+  });
+});
+
+describe.skipIf(!reachable)("recurring expense generation", () => {
+  it("creates due occurrences once, linked to the template", async () => {
+    const owner = await register(`__to${RUN}recgen`, "recgen-pass-123");
+    const other = await register(`__th${RUN}recgen`, "recgen-pass-456");
+    const group = await api(owner.cookie, "POST", "/api/groups", {
+      name: `${GROUP_NAME}recgen`,
+      baseCurrency: "EUR",
+      memberIds: [other.me.id],
+    });
+    const gid = String(group.json.id);
+    // Weekly, starting 15 days ago: three occurrences are due (0, 7, 14 days).
+    const start = new Date(Date.now() - 15 * 86_400_000).toISOString().slice(0, 10);
+    const created = await api(owner.cookie, "POST", `/api/groups/${gid}/recurring`, {
+      title: "Cleaning",
+      amount: 30,
+      currency: "EUR",
+      paidBy: owner.me.id,
+      splitType: "equal",
+      participants: [owner.me.id, other.me.id],
+      recurrence: "week",
+      startDate: start,
+    });
+    expect(created.status).toBe(200);
+    const rid = String(created.json);
+
+    const list = async () =>
+      (await api(owner.cookie, "GET", `/api/groups/${gid}/expenses`)).json as unknown as {
+        recurringId: string | null;
+        amountBase: number;
+        splits: Record<string, number>;
+      }[];
+    const first = await list();
+    expect(first).toHaveLength(3);
+    for (const e of first) {
+      expect(e.recurringId).toBe(rid);
+      expect(e.splits).toEqual({ [owner.me.id]: 15, [other.me.id]: 15 });
+    }
+
+    // Editing the template must not re-create past occurrences.
+    const edited = await api(owner.cookie, "PATCH", `/api/groups/${gid}/recurring/${rid}`, {
+      title: "Cleaning (edited)",
+      amount: 40,
+      currency: "EUR",
+      paidBy: owner.me.id,
+      splitType: "equal",
+      participants: [owner.me.id, other.me.id],
+      recurrence: "week",
+      startDate: start,
+    });
+    expect(edited.status).toBe(200);
+    expect(await list()).toHaveLength(3);
+
+    const plan = await api(owner.cookie, "GET", `/api/groups/${gid}/settlements/plan`);
+    expect((plan.json as { transfers: unknown[] }).transfers).toEqual([
+      { from: other.me.id, to: owner.me.id, amount: 45 },
+    ]);
+  });
+});
+
+describe.skipIf(!reachable)("group summary", () => {
+  it("answers 304 until the group changes", async () => {
+    const owner = await register(`__to${RUN}summary`, "summary-pass-123");
+    const group = await api(owner.cookie, "POST", "/api/groups", {
+      name: `${GROUP_NAME}summary`,
+      baseCurrency: "EUR",
+      memberIds: [],
+    });
+    const gid = String(group.json.id);
+    const get = (etag?: string) =>
+      fetch(`${BASE}/api/groups/${gid}/summary`, {
+        headers: { cookie: owner.cookie, ...(etag ? { "if-none-match": etag } : {}) },
+      });
+    const first = await get();
+    expect(first.status).toBe(200);
+    const etag = first.headers.get("etag") ?? "";
+    expect(etag).not.toBe("");
+    expect((await get(etag)).status).toBe(304);
+
+    await api(owner.cookie, "POST", `/api/groups/${gid}/expenses`, {
+      title: "Coffee",
+      amount: 3,
+      paidBy: owner.me.id,
+      participants: [owner.me.id],
+    });
+    const changed = await get(etag);
+    expect(changed.status).toBe(200);
+    const body = (await changed.json()) as { expenses: { amountBase: number }[] };
+    expect(body.expenses).toEqual([expect.objectContaining({ amountBase: 3 })]);
   });
 });

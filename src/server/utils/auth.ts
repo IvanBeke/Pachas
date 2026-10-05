@@ -1,12 +1,13 @@
 import { randomBytes } from "node:crypto";
 import type { H3Event } from "h3";
-import { and, eq, gt, sql } from "drizzle-orm";
+import { and, eq, gt, lte, ne, sql } from "drizzle-orm";
 import { runtimeDb as db } from "./client";
 import { appSessions, users } from "../db/schema";
 import {
   requireSessionSecret,
   sessionDigest as sessionDigestWith,
 } from "./session-token";
+import { cookieSecure } from "./env";
 
 const SESSION_COOKIE_BASE = "pachas.sid";
 const THIRTY_DAYS_MS = 1000 * 60 * 60 * 24 * 30;
@@ -88,12 +89,6 @@ function removeCookie(
 
 export type DbUser = typeof users.$inferSelect;
 
-function cookieSecure(): boolean {
-  const v =
-    useRuntimeConfig().cookieSecure ?? process.env.COOKIE_SECURE ?? "false";
-  return String(v).toLowerCase() === "true";
-}
-
 /**
  * The session cookie name, and therefore the prefix that is safe to use.
  *
@@ -115,14 +110,12 @@ function sessionCookieName(): string {
 }
 
 function sessionDigest(token: string): string {
-  const secret = requireSessionSecret(
-    useRuntimeConfig().sessionSecret || process.env.SESSION_SECRET,
-  );
+  const secret = requireSessionSecret(process.env.SESSION_SECRET);
   return sessionDigestWith(token, secret);
 }
 
+/** Profile fields visible to other users. Never includes the site role. */
 export function publicUser(row: DbUser) {
-  if (!row) return null;
   let h = 0;
   for (let i = 0; i < row.id.length; i++) {
     h = (h * 31 + row.id.charCodeAt(i)) >>> 0;
@@ -133,6 +126,13 @@ export function publicUser(row: DbUser) {
     username: row.username,
     locale: (row.locale === "en" ? "en" : "es") as "en" | "es",
     color: `hsl(${h % 360}, 42%, 45%)`,
+  };
+}
+
+/** The signed-in user's own view of their account, including the site role. */
+export function selfUser(row: DbUser) {
+  return {
+    ...publicUser(row),
     role: (row.role === "admin" ? "admin" : "user") as "admin" | "user",
   };
 }
@@ -156,11 +156,12 @@ export async function findUserById(uid: string): Promise<DbUser | null> {
 export async function createSession(
   event: H3Event,
   userId: string,
-): Promise<void> {
+): Promise<string> {
   const token = randomBytes(32).toString("hex");
+  const digest = sessionDigest(token);
   const expiresAt = Date.now() + THIRTY_DAYS_MS;
   await db.insert(appSessions).values({
-    token: sessionDigest(token),
+    token: digest,
     userId,
     expiresAt,
   });
@@ -171,6 +172,21 @@ export async function createSession(
     path: "/",
     maxAge: THIRTY_DAYS_MS / 1000,
   });
+  return digest;
+}
+
+/** Ends every session for `userId` except the one whose digest is `keep`. */
+export async function revokeOtherSessions(
+  userId: string,
+  keep: string,
+): Promise<void> {
+  await db
+    .delete(appSessions)
+    .where(and(eq(appSessions.userId, userId), ne(appSessions.token, keep)));
+}
+
+export async function purgeExpiredSessions(): Promise<void> {
+  await db.delete(appSessions).where(lte(appSessions.expiresAt, Date.now()));
 }
 
 export async function destroySession(event: H3Event): Promise<void> {
@@ -184,7 +200,8 @@ export async function destroySession(event: H3Event): Promise<void> {
       await db
         .delete(appSessions)
         .where(eq(appSessions.token, sessionDigest(token)));
-    } catch {
+    } catch (error) {
+      console.warn("[pachas] could not delete session row", error);
     }
   }
   for (const name of names) removeCookie(event, name, { path: "/" });

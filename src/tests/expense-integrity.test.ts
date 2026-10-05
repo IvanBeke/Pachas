@@ -43,10 +43,16 @@ describe("readExpenseInput rejects non-finite amounts", () => {
     expect(rejects({ amount: "1e400", amountBase: "1e400" })).toBe(true);
   });
 
-  it("rejects a non-finite amountBase even when amount is sane", () => {
-    // The interesting half: the client controls these independently, so a
-    // plausible-looking `amount` does not protect a poisoned `amountBase`.
-    expect(rejects({ amount: 10, amountBase: "1e400" })).toBe(true);
+  it("ignores a client amountBase and derives it from amount × rate", () => {
+    // The client used to control both independently; now only `amount` and
+    // the rate are read, so a poisoned `amountBase` cannot reach the ledger.
+    const out = readExpenseInput(base({ amount: 10, amountBase: "1e400" }) as never, MEMBERS, "EUR");
+    expect(out.amountBase).toBe(10);
+  });
+
+  it("rejects a non-finite rate for a foreign currency", () => {
+    expect(rejects({ currency: "USD", exchangeRate: "1e400" })).toBe(true);
+    expect(rejects({ currency: "USD", exchangeRate: 0 })).toBe(true);
   });
 
   it("rejects NaN amounts", () => {
@@ -74,13 +80,14 @@ describe("readExpenseInput rejects non-finite amounts", () => {
     }
   });
 
-  it("keeps a real exchange rate intact", () => {
+  it("keeps a real exchange rate intact and converts with it", () => {
     const out = readExpenseInput(
-      base({ exchangeRate: 1.25 }) as never,
+      base({ currency: "USD", exchangeRate: 1.25 }) as never,
       MEMBERS,
       "EUR",
     );
     expect(out.exchangeRate).toBe(1.25);
+    expect(out.amountBase).toBe(12.5);
   });
 
   it("rejects non-finite item prices", () => {

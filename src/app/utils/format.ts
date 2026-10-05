@@ -62,6 +62,8 @@ export interface Expense {
   splitType: string;
   createdBy: string;
   createdAt: number;
+  /** Set when the expense was generated from a recurring template. */
+  recurringId?: string | null;
   splits: Record<string, number>;
 }
 
@@ -105,39 +107,6 @@ export function parseItems(description: string): ItemsData | null {
 }
 
 
-export function itemsTotalPrice(items: ExpenseItem[]): number {
-  return Math.round(items.reduce((s, it) => s + (it.price || 0), 0) * 100) / 100;
-}
-
-export function splitProportional(
-  total: number,
-  weights: Record<string, number>,
-  ids: string[],
-): Record<string, number> {
-  const out: Record<string, number> = {};
-  ids.forEach((id) => {
-    out[id] = 0;
-  });
-  const wSum = ids.reduce((s, id) => s + (weights[id] || 0), 0);
-  if (!(total > 0) || !(wSum > 0)) return out;
-  const ordered = [...ids].sort((a, b) => (weights[b] || 0) - (weights[a] || 0));
-  let running = 0;
-  ordered.forEach((id, i) => {
-    const v =
-      i === ordered.length - 1
-        ? Math.round((total - running) * 100) / 100
-        : Math.round(((total * (weights[id] || 0)) / wSum) * 100) / 100;
-    running += v;
-    out[id] = v;
-  });
-  return out;
-}
-
-export function tipTotalFor(subtotal: number, percent: number): number {
-  if (!(subtotal > 0) || !(percent > 0)) return 0;
-  return Math.round(((subtotal * percent) / 100) * 100) / 100;
-}
-
 export interface Settlement {
   id: string;
   groupId: string;
@@ -175,7 +144,8 @@ export interface Profile {
   username: string;
   locale: "es" | "en";
   color: string;
-  role: "admin" | "user";
+  /** Only present on the signed-in user's own profile. */
+  role?: "admin" | "user";
 }
 
 export interface Category {
@@ -202,4 +172,6 @@ export interface Group {
   members: { userId: string; role: import("../../shared/group-roles").GroupRole }[];
   createdBy: string;
   createdAt: number;
+  /** Increments on every change to the group's data. */
+  version?: number;
 }

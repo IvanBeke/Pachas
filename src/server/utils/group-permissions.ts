@@ -43,10 +43,10 @@ export function canGroupAction(
         return isElevated;
       case "group.delete":
         return role === GroupRole.Creator;
-      case "member.add":
       case "expense.create":
       case "recurring.create":
         return true;
+      case "member.add":
       case "import":
       case "expense.manage.any":
       case "recurring.manage.any":

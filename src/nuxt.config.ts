@@ -39,17 +39,15 @@ export default defineNuxtConfig({
       dialect: "sqlite",
       driver: "libsql",
       casing: "snake_case",
+      // scripts/migrate.mjs owns migrations (it runs at container start);
+      // NuxtHub is only used for `pnpm db:generate`.
       applyMigrationsDuringBuild: false,
+      applyMigrationsDuringDev: false,
     },
   },
   css: ["~/assets/style.css"],
-  runtimeConfig: {
-    databasePath: process.env.DATABASE_PATH || "/data/pachas.sqlite",
-    sessionSecret: process.env.SESSION_SECRET || "",
-    allowRegistration: process.env.ALLOW_REGISTRATION ?? "true",
-    cookieSecure: process.env.COOKIE_SECURE ?? "false",
-    public: {},
-  },
+  // Deployment settings are read from process.env at runtime (see
+  // server/utils/env.ts); runtimeConfig would freeze them at build time.
   nitro: {
     preset: "node-server",
     ...(useDevFilePolling
@@ -76,6 +74,7 @@ export default defineNuxtConfig({
         "x-content-type-options": "nosniff",
         "referrer-policy": "no-referrer",
         "x-frame-options": "DENY",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
       },
     },
   },

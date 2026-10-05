@@ -37,9 +37,26 @@ export async function initializeRuntimeDb(): Promise<void> {
       await client.execute("PRAGMA foreign_keys = ON");
       await client.execute("PRAGMA journal_mode = WAL");
       await client.execute("PRAGMA synchronous = NORMAL");
+      await client.execute("PRAGMA busy_timeout = 5000");
+      await client.execute("PRAGMA temp_store = MEMORY");
     })();
   }
   await _initialized;
+}
+
+/**
+ * Checkpoints the WAL and closes the connection, so a stopped container leaves
+ * a self-contained `.sqlite` file behind.
+ */
+export async function closeRuntimeDb(): Promise<void> {
+  if (!_db) return;
+  try {
+    await _db.$client.execute("PRAGMA wal_checkpoint(TRUNCATE)");
+  } finally {
+    _db.$client.close();
+    _db = null;
+    _initialized = null;
+  }
 }
 
 // Keep this distinct from NuxtHub's generated `db` auto-import. The runtime

@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  assignRemainder,
   computeSplits,
   splitsToInputValues,
   sumSplits,
@@ -35,7 +34,7 @@ describe("equal", () => {
     // participant so the total stays exact.
     const r = computeSplits(base({ amountBase: 10, participants: [A, B, C], memberIds: [A, B, C] }));
     expect(r.ok).toBe(true);
-    expect(r.ok && r.splits).toEqual({ a: 3.33, b: 3.33, c: 3.34 });
+    expect(r.ok && r.splits).toEqual({ a: 3.34, b: 3.33, c: 3.33 });
     expect(reconciles(r as { ok: true; splits: Record<string, number> }, 10)).toBe(true);
   });
 
@@ -75,13 +74,27 @@ describe("exact", () => {
     expect(r).toEqual({ ok: false, reason: "exact_mismatch" });
   });
 
-  it("tolerates a cent of drift and folds it back in", () => {
-    // Within the 0.02 tolerance, so it is accepted and reconciled.
+  it("rejects even a single cent of drift", () => {
+    // Amounts are compared in integer cents, so there is no tolerance.
     const r = computeSplits(
       base({ splitType: "exact", amountBase: 30, values: { a: 25, b: 4.99 } }),
     );
-    expect(r.ok).toBe(true);
-    expect(reconciles(r as { ok: true; splits: Record<string, number> }, 30)).toBe(true);
+    expect(r).toEqual({ ok: false, reason: "exact_mismatch" });
+  });
+
+  it("converts exact amounts typed in a foreign currency into base", () => {
+    // 10 USD at 1.5 => 15 base, typed as 6 + 4 USD.
+    const r = computeSplits(
+      base({ splitType: "exact", amount: 10, amountBase: 15, values: { a: 6, b: 4 } }),
+    );
+    expect(r.ok && r.splits).toEqual({ a: 9, b: 6 });
+  });
+
+  it("rejects negative amounts", () => {
+    const r = computeSplits(
+      base({ splitType: "exact", amountBase: 10, values: { a: 15, b: -5 } }),
+    );
+    expect(r).toEqual({ ok: false, reason: "bad_amount" });
   });
 });
 
@@ -154,7 +167,7 @@ describe("items", () => {
   it("applies the exchange rate to convert into base currency", () => {
     // €26 of items recorded at a rate of 2 => base amount 52.
     const r = computeSplits(
-      base({ splitType: "items", amountBase: 52, rate: 2, items, memberIds: [A, B] }),
+      base({ splitType: "items", amount: 26, amountBase: 52, items, memberIds: [A, B] }),
     );
     expect(r.ok && r.splits).toEqual({ a: 20, b: 32 });
     expect(reconciles(r as { ok: true; splits: Record<string, number> }, 52)).toBe(true);
@@ -197,30 +210,20 @@ describe("every split type reconciles to the total", () => {
   );
 });
 
-describe("assignRemainder", () => {
-  it("is a no-op when the shares already add up", () => {
-    const s = { a: 5, b: 5 };
-    assignRemainder(s, 10, (ids) => ids[0]);
-    expect(s).toEqual({ a: 5, b: 5 });
-  });
-
-  it("folds drift into the chosen participant", () => {
-    const s = { a: 3.33, b: 3.33 };
-    assignRemainder(s, 10, (ids) => ids[0]);
-    expect(s.a).toBe(6.67);
-    expect(sumSplits(s)).toBe(10);
-  });
-
-  it("can subtract as well as add", () => {
-    const s = { a: 5, b: 5 };
-    assignRemainder(s, 9.5, (ids) => ids[1]);
-    expect(s.b).toBe(4.5);
-  });
-
-  it("does nothing when there is nobody to absorb it", () => {
-    const s = {};
-    assignRemainder(s, 10, () => undefined);
-    expect(s).toEqual({});
+describe("items with tax and tip", () => {
+  it("spreads extras in proportion to each person's items", () => {
+    // 20 of items (a: 5, b: 15) plus 4 of tax => total 24.
+    const r = computeSplits(
+      base({
+        splitType: "items",
+        amountBase: 24,
+        items: [
+          { name: "x", price: 5, members: [A] },
+          { name: "y", price: 15, members: [B] },
+        ],
+      }),
+    );
+    expect(r.ok && r.splits).toEqual({ a: 6, b: 18 });
   });
 });
 

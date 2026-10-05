@@ -1,4 +1,6 @@
 import { createError } from "h3";
+import { MAX_AMOUNT, round2 } from "../../shared/money";
+import { isDateOnly } from "./expense-input";
 
 /**
  * Splitwise CSV export parsing.
@@ -26,6 +28,8 @@ export interface SplitwiseAnalysis {
   members: string[];
   /** Distinct non-empty category strings. */
   categories: string[];
+  /** Distinct currencies of the usable rows. */
+  currencies: string[];
   rows: SplitwiseRow[];
   /** Rows that will be created. */
   total: number;
@@ -35,6 +39,9 @@ export interface SplitwiseAnalysis {
 }
 
 const FIXED_HEADER = ["Fecha", "Descripción", "Categoría", "Coste", "Moneda"];
+
+/** Bounds a single import so one upload can't create an unbounded batch. */
+export const MAX_IMPORT_ROWS = 20_000;
 
 export function parseCsvLine(line: string): string[] {
   const result: string[] = [];
@@ -53,10 +60,6 @@ export function parseCsvLine(line: string): string[] {
   }
   result.push(current.trim());
   return result;
-}
-
-function round2(n: number): number {
-  return Math.round(n * 100) / 100;
 }
 
 /**
@@ -160,6 +163,7 @@ export function analyzeSplitwiseCsv(
 
   const rows: SplitwiseRow[] = [];
   const catSet = new Set<string>();
+  const currencies = new Set<string>();
   let skipped = 0;
 
   for (let i = 1; i < lines.length; i++) {
@@ -169,17 +173,29 @@ export function analyzeSplitwiseCsv(
     if (!coste) continue;
 
     const date = cols[0]?.trim();
-    const title = cols[1]?.trim();
-    const category = cols[2]?.trim() ?? "";
-    const amount = parseFloat(coste);
-    const currency = cols[4]?.trim();
-    if (!date || !title || !amount || amount <= 0 || !currency) {
+    const title = cols[1]?.trim().slice(0, 80);
+    const category = (cols[2]?.trim() ?? "").slice(0, 60);
+    const amount = round2(parseFloat(coste));
+    const currency = cols[4]?.trim().toUpperCase();
+    if (
+      !date ||
+      !title ||
+      !Number.isFinite(amount) ||
+      amount <= 0 ||
+      amount > MAX_AMOUNT ||
+      !currency ||
+      !/^[A-Z]{3}$/.test(currency) ||
+      !isDateOnly(date)
+    ) {
       skipped++;
       continue;
     }
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-      skipped++;
-      continue;
+    if (rows.length >= MAX_IMPORT_ROWS) {
+      throw createError({
+        statusCode: 400,
+        message: "too_many_rows",
+        data: { max: MAX_IMPORT_ROWS },
+      });
     }
 
     const balances: number[] = [];
@@ -195,12 +211,14 @@ export function analyzeSplitwiseCsv(
     }
 
     rows.push({ date, title, category, amount, currency, ...derived });
+    currencies.add(currency);
     if (category) catSet.add(category);
   }
 
   return {
     members,
     categories: [...catSet],
+    currencies: [...currencies],
     rows,
     total: rows.length,
     skipped,

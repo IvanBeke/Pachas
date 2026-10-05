@@ -83,14 +83,10 @@ async function leaveGroup() {
 
 async function load() {
   try {
-    group.value = await $fetch<Group>(`/api/groups/${gid}`);
-    await ensure(group.value.memberIds || []);
-    try {
-      const expenses = await $fetch<unknown[]>(`/api/groups/${gid}/expenses`);
-      hasExpenses.value = expenses.length > 0;
-    } catch {
-      hasExpenses.value = false;
-    }
+    const loaded = await $fetch<Group & { hasExpenses: boolean }>(`/api/groups/${gid}`);
+    group.value = loaded;
+    hasExpenses.value = loaded.hasExpenses;
+    await ensure(loaded.memberIds || []);
     if (!seeded.value) {
       name.value = group.value.name;
       emoji.value = group.value.emoji || "🧾";
@@ -271,7 +267,7 @@ onMounted(async () => {
           {{ t("groupEdit.members") }}
         </div>
         <div class="card">
-          <div style="margin-bottom: 12px">
+          <div v-if="canManage" style="margin-bottom: 12px">
             <button class="btn btn-sm" @click="showAddMember = true">
               {{ t("group.addPerson") }}
             </button>

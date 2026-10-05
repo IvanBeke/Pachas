@@ -27,9 +27,10 @@ want this project to evolve or how I personally use it.
 cp .env.example .env
 ```
 
-Set `SESSION_SECRET` in `.env`; generate it with `openssl rand -hex 32`. The app
-refuses to start without it. `DATABASE_PATH` is optional and defaults to the
-SQLite file `/data/pachas.sqlite` inside the app container.
+Set `SESSION_SECRET` in `.env`; generate it with `openssl rand -hex 32`. Compose
+won't start without it, and the server refuses to start if it is shorter than
+32 bytes or still the example placeholder. The dev database is
+`/data/pachas.sqlite` in the `pachas-dev-data` volume.
 
 ```bash
 docker compose up -d
@@ -64,7 +65,8 @@ docker compose run --rm --no-deps pachas pnpm test
 docker compose run --rm --no-deps pachas pnpm typecheck
 ```
 
-`pnpm test` runs the unit and property suites and needs no server or database.
+`pnpm test` runs the unit, property and migration suites and needs no running
+server.
 `pnpm typecheck` must report **0 errors** — do not silence one by relaxing a
 compiler flag.
 
@@ -96,13 +98,15 @@ fails before trusting a new test.
 `ci.yml` runs the unit tests and typecheck, and separately builds the Docker
 image, so a Dockerfile that no longer builds fails before anything ships. When
 both are green on `main`, `docker-publish.yml` pushes the image to GHCR and
-signs it. CodeQL scans JavaScript/TypeScript on every push and pull request.
+signs it. CodeQL scans JavaScript/TypeScript on pushes to `main` and pull
+requests targeting it.
 
 Two consequences for contributors:
 
-- **A pull request from a fork is not built.** `docker build` runs repository
-  code on a GitHub runner, so CI skips it unless the branch lives in this
-  repository. Ask for a branch to be pushed here if you need the image check.
+- **A pull request from a fork is not checked by CI at all** — neither tests,
+  typecheck, nor the image build run, because they execute repository code on
+  a GitHub runner. Run the verification steps above locally, and ask for the
+  branch to be pushed here if you need CI.
 - **Actions are pinned to commit SHAs.** If you touch a workflow and see a
   `@abc123… # v3`, leave the comment as the version label and update both
   together — `gh api repos/<owner>/<repo>/git/ref/tags/<tag>` is how you resolve

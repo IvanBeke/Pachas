@@ -14,7 +14,8 @@ watch(search, () => {
   if (searchTimer) clearTimeout(searchTimer);
   searchTimer = setTimeout(async () => {
     const q = search.value.trim();
-    if (!q) {
+    // The server ignores shorter queries, so don't send them.
+    if (q.length < 3) {
       hits.value = [];
       return;
     }

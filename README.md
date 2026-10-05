@@ -7,11 +7,17 @@ service is required.
 
 ## Features
 
-- Groups with members, emoji, and a base currency.
-- Multi-currency expenses with five ways to split a bill.
-- Group-net and pairwise settlement suggestions.
-- Recurring expenses with start and optional end dates.
-- Splitwise CSV import, activity feed, and an admin area.
+- Groups with members, emoji, a base currency, and roles (creator, admin,
+  member). Members can leave a group once they owe and are owed nothing; the
+  creator can hand the group over or delete it.
+- Multi-currency expenses with five ways to split a bill: equal, exact amounts,
+  percentages, shares, or itemised.
+- Group-net (simplified) or direct pairwise settlement suggestions.
+- Recurring expenses (weekly, monthly, yearly) that the server turns into real
+  expenses on schedule, with an optional end date.
+- Splitwise CSV import, an activity feed, and a profile page (name, language,
+  password).
+- A site admin area with usage counts and category management.
 
 ## Stack
 
@@ -22,17 +28,24 @@ service is required.
 ## Production quick start
 
 1. Copy `.env.example` to `.env` and set `SESSION_SECRET` to the output of
-   `openssl rand -hex 32`.
+   `openssl rand -hex 32`. Set `ALLOW_REGISTRATION=true` for now.
 2. Start the production image:
 
    ```bash
    docker compose -f compose.prod.yaml up -d
    ```
 
-3. Open `http://<your-server>:3000` and create the first account; it becomes the
-   site administrator.
-4. Close sign-ups by setting `ALLOW_REGISTRATION` to `false` in
-   `compose.prod.yaml` and restarting the service.
+3. Open `http://localhost:3000` (the port is bound to `127.0.0.1` by default;
+   see [deployment](./docs/deployment.md) to expose it) and register your
+   account.
+4. Make that account the site administrator:
+
+   ```bash
+   docker compose -f compose.prod.yaml exec pachas node scripts/make-admin.mjs <username>
+   ```
+
+5. Once everyone has an account, set `ALLOW_REGISTRATION=false` in `.env` and
+   run `docker compose -f compose.prod.yaml up -d` again.
 
 ## Development
 

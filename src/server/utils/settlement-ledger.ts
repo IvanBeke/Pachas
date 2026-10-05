@@ -1,3 +1,4 @@
+import { fromCents, toCents } from "../../shared/money";
 import type { Balance, SuggestedTransfer } from "./groups";
 
 export interface ExpenseDebtInput {
@@ -19,8 +20,6 @@ export interface PairwiseDebt {
 
 export interface SettlementAllocation extends PairwiseDebt {}
 
-const toCents = (amount: number): number => Math.round(amount * 100);
-const fromCents = (cents: number): number => cents / 100;
 
 function pairKey(a: string, b: string): string {
   return a < b ? `${a}\0${b}` : `${b}\0${a}`;
@@ -299,5 +298,3 @@ export function allocatePayment(
   return { debts: nextDebts, allocations };
 }
 
-export const amountToCents = toCents;
-export const centsToAmount = fromCents;

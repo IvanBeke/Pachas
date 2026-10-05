@@ -4,13 +4,18 @@ import {
   fmt,
   todayStr,
   translatedTitle,
-  type Category,
   type ItemsData,
   type Group,
   type Profile,
 } from "~/utils/format";
 import { useProfiles } from "~/composables/useGroups";
-import { computeSplits, itemsTotals, splitsToInputValues } from "~/utils/splits";
+import {
+  computeSplits,
+  itemsTotals,
+  round2,
+  splitsToInputValues,
+  type SplitType,
+} from "~/utils/splits";
 import ItemsModal from "~/components/ItemsModal.vue";
 
 const { t, locale } = useI18n();
@@ -35,12 +40,8 @@ const props = defineProps<{
 }>();
 const emit = defineEmits<{ close: []; saved: []; error: [msg: string] }>();
 
-onMounted(async () => {
-  try {
-    categories.value = await $fetch<Category[]>("/api/categories");
-  } catch {
-  }
-});
+const { categories, load: loadCategories, iconOf: categoryIcon } = useCategories();
+onMounted(loadCategories);
 
 const { nameOf } = useProfiles();
 
@@ -53,11 +54,8 @@ const paidBy = ref(props.me.id);
 const category = ref("general");
 const date = ref(todayStr());
 
-const categories = ref<Category[]>([]);
-const categoryIcon = (id: string): string =>
-  categories.value.find((c) => String(c.id) === id)?.icon ?? "🧾";
 
-const splitType = ref<"equal" | "exact" | "percent" | "shares" | "items">("equal");
+const splitType = ref<SplitType>("equal");
 const isRecurring = ref(false);
 const recurrence = ref<"week" | "month" | "year">("month");
 const startDate = ref(todayStr());
@@ -80,23 +78,20 @@ watch(
     paidBy.value = val.paidBy;
     category.value = val.category;
     date.value = val.date;
-    splitType.value = val.splitType as
-      | "equal"
-      | "exact"
-      | "percent"
-      | "shares"
-      | "items";
+    splitType.value = val.splitType as SplitType;
     participants.value = Object.keys(val.splits);
     splitValues.value = splitsToInputValues(
       val.splits,
       val.amountBase,
       splitType.value,
+      val.amount,
     );
     if (splitType.value === "items") {
       try {
         const parsed = JSON.parse(val.description) as ItemsData;
         if (parsed && Array.isArray(parsed.items)) items.value = parsed;
       } catch {
+        // Not an items payload; the form starts with an empty bill.
       }
     }
   },
@@ -107,8 +102,9 @@ const memberIds = computed(() => props.group.memberIds || []);
 const showRate = computed(() => currency.value !== props.group.baseCurrency);
 const amountNum = computed(() => parseFloat(amount.value) || 0);
 
+const checked = computed(() => new Set(participants.value));
 function isChecked(id: string): boolean {
-  return participants.value.includes(id);
+  return checked.value.has(id);
 }
 
 function toggleParticipant(id: string) {
@@ -120,10 +116,8 @@ function toggleParticipant(id: string) {
 function splitDefault(id: string): number {
   const n = participants.value.length || 1;
   const amt = amountNum.value;
-  if (splitType.value === "exact")
-    return isChecked(id) ? Math.round((amt / n) * 100) / 100 : 0;
-  if (splitType.value === "percent")
-    return isChecked(id) ? Math.round((100 / n) * 100) / 100 : 0;
+  if (splitType.value === "exact") return isChecked(id) ? round2(amt / n) : 0;
+  if (splitType.value === "percent") return isChecked(id) ? round2(100 / n) : 0;
   return isChecked(id) ? 1 : 0;
 }
 
@@ -137,15 +131,21 @@ function equalShare(id: string): string {
   return fmt(amountNum.value / n, currency.value);
 }
 
-const remainText = computed(() => {
-  if (splitType.value === "equal") return "";
-  const amt = amountNum.value;
+/** Sum of the typed split values for checked participants. */
+const valueSum = computed(() => {
   let sum = 0;
   memberIds.value.forEach((id) => {
     if (isChecked(id)) sum += Number(splitValues.value[id] ?? splitDefault(id)) || 0;
   });
+  return round2(sum);
+});
+
+const remainText = computed(() => {
+  if (splitType.value === "equal") return "";
+  const amt = amountNum.value;
+  const sum = valueSum.value;
   if (splitType.value === "exact") {
-    const rem = Math.round((amt - sum) * 100) / 100;
+    const rem = round2(amt - sum);
     if (Math.abs(rem) < 0.005) return t("expenseModal.splitsMatch");
     return (
       fmt(Math.abs(rem), currency.value) +
@@ -153,7 +153,7 @@ const remainText = computed(() => {
     );
   }
   if (splitType.value === "percent") {
-    const remP = Math.round((100 - sum) * 100) / 100;
+    const remP = round2(100 - sum);
     if (Math.abs(remP) < 0.005) return t("expenseModal.hundredPercent");
     return (
       Math.abs(remP) + "% " + (remP > 0 ? t("expenseModal.leftToAssign") : t("expenseModal.tooMuch"))
@@ -163,23 +163,8 @@ const remainText = computed(() => {
 });
 
 const remainOk = computed(() => {
-  if (splitType.value === "equal") return true;
-  if (splitType.value === "exact") {
-    let sum = 0;
-    memberIds.value.forEach((id) => {
-      if (isChecked(id))
-        sum += Number(splitValues.value[id] ?? splitDefault(id)) || 0;
-    });
-    return Math.abs(amountNum.value - sum) < 0.005;
-  }
-  if (splitType.value === "percent") {
-    let sum = 0;
-    memberIds.value.forEach((id) => {
-      if (isChecked(id))
-        sum += Number(splitValues.value[id] ?? splitDefault(id)) || 0;
-    });
-    return Math.abs(100 - sum) < 0.005;
-  }
+  if (splitType.value === "exact") return valueSum.value === round2(amountNum.value);
+  if (splitType.value === "percent") return Math.abs(100 - valueSum.value) <= 0.011;
   return true;
 });
 
@@ -197,12 +182,9 @@ const itemsGrandPerPerson = computed(() =>
   itemsTotals(items.value.items, memberIds.value),
 );
 const itemsTotal = computed(() =>
-  Math.round(
-    memberIds.value.reduce(
-      (s, id) => s + (itemsGrandPerPerson.value[id] || 0),
-      0,
-    ) * 100,
-  ) / 100,
+  round2(
+    memberIds.value.reduce((s, id) => s + (itemsGrandPerPerson.value[id] || 0), 0),
+  ),
 );
 
 async function submit() {
@@ -232,15 +214,16 @@ async function submit() {
     currency.value === props.group.baseCurrency
       ? 1
       : Number(exchangeRate.value) || 1;
-  const amountBase = Math.round(amt * rate * 100) / 100;
+  // Preview only; the server derives the base amount itself.
+  const amountBase = round2(amt * rate);
   const values: Record<string, number> = {};
   participants.value.forEach((id) => {
     values[id] = splitValues.value[id] ?? splitDefault(id);
   });
   const result = computeSplits({
     splitType: splitType.value,
+    amount: amt,
     amountBase,
-    rate,
     participants: participants.value,
     memberIds: memberIds.value,
     values,
@@ -266,14 +249,12 @@ async function submit() {
       amount: amt,
       currency: currency.value,
       exchangeRate: rate,
-      amountBase,
       paidBy: paidBy.value,
       category: category.value,
       date: date.value,
       splitType: splitType.value,
       participants: [...participants.value],
       values,
-      items: items.value.items,
     };
     if (props.initial) {
       await $fetch(`/api/groups/${props.group.id}/expenses/${props.initial.id}`, {

@@ -12,9 +12,9 @@ const group = {
 };
 
 describe("group role permissions", () => {
-  it("allows members to add people but not import or change settings", () => {
+  it("lets members add expenses but not people, imports or settings", () => {
     const member = { id: "member", role: "admin" };
-    expect(canGroupAction(member, group, "member.add")).toBe(true);
+    expect(canGroupAction(member, group, "member.add")).toBe(false);
     expect(canGroupAction(member, group, "expense.create")).toBe(true);
     expect(canGroupAction(member, group, "recurring.create")).toBe(true);
     expect(canGroupAction(member, group, "import")).toBe(false);
@@ -38,6 +38,7 @@ describe("group role permissions", () => {
   it("allows group admins and creators to manage any expense and import", () => {
     for (const id of ["creator", "admin"]) {
       const user = { id };
+      expect(canGroupAction(user, group, "member.add")).toBe(true);
       expect(canGroupAction(user, group, "import")).toBe(true);
       expect(canGroupAction(user, group, { type: "expense.update", ownerId: "other" })).toBe(true);
       expect(canGroupAction(user, group, { type: "recurring.delete", ownerId: "other" })).toBe(true);

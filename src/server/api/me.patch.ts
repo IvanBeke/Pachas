@@ -2,7 +2,15 @@ import bcrypt from "bcryptjs";
 import { eq } from "drizzle-orm";
 import { users } from "../db/schema";
 import { runtimeDb as db } from "../utils/client";
-import { findUserById, publicUser, requireUser } from "../utils/auth";
+import {
+  createSession,
+  destroySession,
+  findUserById,
+  requireUser,
+  revokeOtherSessions,
+  selfUser,
+} from "../utils/auth";
+import { passwordProblem } from "../utils/password";
 
 export default defineEventHandler(async (event) => {
   const user = await requireUser(event);
@@ -47,10 +55,11 @@ export default defineEventHandler(async (event) => {
         message: "profile_password_fields_required",
       });
     }
-    if (body.newPassword.length < 8) {
+    const problem = passwordProblem(body.newPassword);
+    if (problem === "too_short") {
       throw createError({ statusCode: 400, message: "profile_password_too_short" });
     }
-    if (Buffer.byteLength(body.newPassword, "utf8") > 72) {
+    if (problem === "too_long") {
       throw createError({ statusCode: 400, message: "profile_password_too_long" });
     }
     if (!(await bcrypt.compare(body.currentPassword, user.passwordHash))) {
@@ -67,6 +76,13 @@ export default defineEventHandler(async (event) => {
   }
 
   await db.update(users).set(updates).where(eq(users.id, user.id));
+  if (updates.passwordHash) {
+    // A password change signs out every other device and rotates this one's
+    // token, so a stolen session cookie stops working.
+    await destroySession(event);
+    const keep = await createSession(event, user.id);
+    await revokeOtherSessions(user.id, keep);
+  }
   const updated = await findUserById(user.id);
-  return publicUser(updated!);
+  return selfUser(updated!);
 });

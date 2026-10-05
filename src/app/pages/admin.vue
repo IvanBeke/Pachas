@@ -34,7 +34,6 @@ interface Category {
 }
 
 const data = ref<AdminData | null>(null);
-const categories = ref<Category[]>([]);
 const toast = ref<string | null>(null);
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -64,13 +63,7 @@ async function load() {
   }
 }
 
-async function loadCategories() {
-  try {
-    categories.value = await $fetch<Category[]>("/api/categories");
-  } catch {
-    // ignore
-  }
-}
+const { categories, refresh: loadCategories } = useCategories();
 
 async function addCategory() {
   const title = newTitle.value.trim();

@@ -1,13 +1,13 @@
-import { requireUser, findUserById } from "../../utils/auth";
-import { getUsersByIds, createGroup } from "../../utils/groups";
+import { requireUser } from "../../utils/auth";
+import { createGroup, getUsersByIds } from "../../utils/groups";
+import { readCurrency } from "../../utils/expense-input";
 
 /** Bounds the `IN (...)` list built below, so a huge array cannot be sent. */
 const MAX_INITIAL_MEMBERS = 100;
 
 export default defineEventHandler(async (event) => {
   const me = await requireUser(event);
-  const body = await readBody(event).catch(() => ({}));
-  const { name, emoji, baseCurrency, memberIds } = body || {};
+  const { name, emoji, baseCurrency, memberIds } = await readJsonObject(event);
   if (typeof name !== "string" || !name.trim()) {
     throw createError({
       statusCode: 400,
@@ -20,21 +20,17 @@ export default defineEventHandler(async (event) => {
       message: `A group can start with at most ${MAX_INITIAL_MEMBERS} members.`,
     });
   }
-  const wanted = Array.isArray(memberIds)
-    ? (await getUsersByIds(memberIds))
-        .map((u) => u?.id)
-        .filter((id): id is string => Boolean(id))
+  const requested = Array.isArray(memberIds)
+    ? [...new Set(memberIds.filter((id): id is string => typeof id === "string"))]
     : [];
-  // Guard against forged member ids.
-  const verified: string[] = [];
-  for (const uid of wanted) {
-    if (await findUserById(uid)) verified.push(uid);
-  }
+  // Only real accounts are added; unknown ids are dropped silently.
+  const verified = (await getUsersByIds(requested)).map((u) => u.id);
   return createGroup(
     name.trim().slice(0, 80),
-    (emoji || "🧾").toString().slice(0, 4),
-    (baseCurrency || "EUR").toString().toUpperCase().slice(0, 3),
+    String(emoji || "🧾").slice(0, 4),
+    readCurrency(baseCurrency, "EUR"),
     me.id,
     verified,
   );
 });
+

@@ -25,9 +25,12 @@ const sourceMigrationsDir = join(
   "migrations",
   "sqlite",
 );
-const migrationsDir = existsSync(packagedMigrationsDir)
-  ? packagedMigrationsDir
-  : sourceMigrationsDir;
+// PACHAS_MIGRATIONS_DIR is a test seam for running a partial journal.
+const migrationsDir = process.env.PACHAS_MIGRATIONS_DIR
+  ? resolve(process.env.PACHAS_MIGRATIONS_DIR)
+  : existsSync(packagedMigrationsDir)
+    ? packagedMigrationsDir
+    : sourceMigrationsDir;
 const journal = JSON.parse(
   readFileSync(join(migrationsDir, "meta", "_journal.json"), "utf8"),
 );
@@ -55,9 +58,20 @@ try {
       .map((statement) => statement.trim())
       .filter(Boolean);
 
+    // SQLite's documented table-rebuild procedure: `PRAGMA foreign_keys` is a
+    // no-op inside a transaction, so it is switched off around it. Otherwise
+    // `DROP TABLE` on a rebuilt parent table would cascade-delete child rows.
+    // Integrity is re-verified with foreign_key_check before committing.
+    database.exec("PRAGMA foreign_keys = OFF");
     database.exec("BEGIN IMMEDIATE");
     try {
       for (const statement of statements) database.exec(statement);
+      const violations = database.prepare("PRAGMA foreign_key_check").all();
+      if (violations.length) {
+        throw new Error(
+          `foreign key violations after ${entry.tag}: ${JSON.stringify(violations.slice(0, 5))}`,
+        );
+      }
       database
         .prepare("INSERT INTO __drizzle_migrations (hash, created_at) VALUES (?, ?)")
         .run(entry.tag, Date.now());
@@ -65,6 +79,8 @@ try {
     } catch (error) {
       database.exec("ROLLBACK");
       throw error;
+    } finally {
+      database.exec("PRAGMA foreign_keys = ON");
     }
     console.log(`[pachas] applied SQLite migration ${entry.tag}`);
   }
