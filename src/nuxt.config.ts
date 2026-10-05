@@ -1,3 +1,7 @@
+const useDevFilePolling =
+  process.env.NODE_ENV === "development" &&
+  process.env.PACHAS_DEV_USE_POLLING !== "false";
+
 export default defineNuxtConfig({
   srcDir: "app/",
   serverDir: "server/",
@@ -8,6 +12,18 @@ export default defineNuxtConfig({
   // Vite trying to resolve Nuxt's server-only `#app-manifest` dynamic import.
   experimental: { appManifest: process.env.NODE_ENV !== "development" },
   modules: ["@nuxthub/core", "@nuxtjs/i18n"],
+  ...(useDevFilePolling
+    ? {
+        watchers: {
+          chokidar: { usePolling: true, interval: 1000 },
+        },
+        vite: {
+          server: {
+            watch: { usePolling: true, interval: 1000 },
+          },
+        },
+      }
+    : {}),
   i18n: {
     defaultLocale: "es",
     locales: [
@@ -36,6 +52,9 @@ export default defineNuxtConfig({
   },
   nitro: {
     preset: "node-server",
+    ...(useDevFilePolling
+      ? { watchOptions: { usePolling: true, interval: 1000 } }
+      : {}),
   },
   routeRules: {
     "/**": {

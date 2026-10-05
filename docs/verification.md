@@ -4,7 +4,8 @@
 
 - `compose.yaml` is the development stack. It bind-mounts `src/`, keeps
   `node_modules` and the dev database in named volumes, and runs `pnpm dev` with
-  hot reload.
+  hot reload. Polling is enabled for bind-mounted source files by default; set
+  `PACHAS_DEV_USE_POLLING=false` when native file events work to reduce CPU use.
 - `compose.prod.yaml` uses the published
   `ghcr.io/ivanbeke/pachas:latest` image and persists data in
   `pachas_pachas-data`.

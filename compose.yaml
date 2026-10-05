@@ -16,6 +16,7 @@ services:
       SESSION_SECRET: ${SESSION_SECRET:?Set SESSION_SECRET in your .env file}
       ALLOW_REGISTRATION: "true"
       COOKIE_SECURE: "false"
+      PACHAS_DEV_USE_POLLING: ${PACHAS_DEV_USE_POLLING:-true}
     entrypoint: ["/bin/sh", "/app/scripts/dev-entrypoint.sh"]
     command: ["pnpm", "dev", "--host", "0.0.0.0"]
 

@@ -41,6 +41,11 @@ volume so dependency changes do not require rebuilding an image. Migrations and
 built-in categories are applied before Nuxt starts. For production, use
 `docker compose -f compose.prod.yaml up -d`.
 
+Polling is enabled by default in the development Compose service so edits made
+from WSL are detected across the Windows-mounted source directory. On a native
+Linux filesystem with working file events, set `PACHAS_DEV_USE_POLLING=false` in
+`.env` to reduce watcher CPU usage. This setting only affects development.
+
 Dependency files must stay in the named Docker volume, so run installs and
 checks through the development service:
 
