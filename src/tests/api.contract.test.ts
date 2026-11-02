@@ -648,6 +648,72 @@ describe.skipIf(!reachable)("category title links contract", () => {
   });
 });
 
+describe.skipIf(!reachable)("amounts keep a third decimal", () => {
+  it("round-trips typed amounts and settles an uneven split down to the thousandth", async () => {
+    const a = await register(`__tma${RUN}`, "mills-pass-123");
+    const b = await register(`__tmb${RUN}`, "mills-pass-123");
+    const c = await register(`__tmc${RUN}`, "mills-pass-123");
+    const created = await api(a.cookie, "POST", "/api/groups", {
+      name: `__mills__${RUN}`,
+      baseCurrency: "EUR",
+      memberIds: [a.me.id, b.me.id, c.me.id],
+    });
+    expect(created.status).toBe(200);
+    const gid = created.json.id as string;
+    const expense = (title: string, amount: number, over: Record<string, unknown> = {}) => ({
+      title,
+      amount,
+      currency: "EUR",
+      exchangeRate: 1,
+      paidBy: a.me.id,
+      category: "1",
+      date: "2026-10-01",
+      splitType: "equal",
+      participants: [a.me.id, b.me.id, c.me.id],
+      ...over,
+    });
+
+    // A typed amount comes back exactly as typed.
+    expect((await api(a.cookie, "POST", `/api/groups/${gid}/expenses`, expense("typed", 10.01, { participants: [a.me.id] }))).status).toBe(200);
+    // 10 ÷ 3: the spare thousandth goes to the first participant.
+    expect((await api(a.cookie, "POST", `/api/groups/${gid}/expenses`, expense("uneven", 10))).status).toBe(200);
+    // A foreign amount converts to a third decimal: 10.00 USD × 0.9213 = 9.213 EUR.
+    expect(
+      (await api(a.cookie, "POST", `/api/groups/${gid}/expenses`, expense("usd", 10, { currency: "USD", exchangeRate: 0.9213, participants: [a.me.id] }))).status,
+    ).toBe(200);
+
+    const list = (await api(a.cookie, "GET", `/api/groups/${gid}/expenses`)).json as unknown as {
+      title: string;
+      amount: number;
+      amountBase: number;
+      splits: Record<string, number>;
+    }[];
+    const byTitle = (t: string) => list.find((e) => e.title === t)!;
+    expect(byTitle("typed")).toMatchObject({ amount: 10.01, amountBase: 10.01 });
+    expect(byTitle("uneven").splits).toEqual({
+      [a.me.id]: 3.334,
+      [b.me.id]: 3.333,
+      [c.me.id]: 3.333,
+    });
+    expect(byTitle("usd")).toMatchObject({ amount: 10, amountBase: 9.213 });
+
+    // B settles exactly what they owe on the uneven split, with no residual left.
+    const settled = await api(b.cookie, "POST", `/api/groups/${gid}/settlements`, {
+      from: b.me.id,
+      to: a.me.id,
+    });
+    expect(settled.status).toBe(200);
+    expect(settled.json.amount).toBe(3.333);
+    const plan = (await api(a.cookie, "GET", `/api/groups/${gid}/settlements/plan`)).json as unknown as {
+      balances: { memberId: string; amount: number }[];
+    };
+    const balance = (id: string) => plan.balances.find((x) => x.memberId === id)?.amount ?? 0;
+    expect(balance(b.me.id)).toBe(0);
+    expect(balance(c.me.id)).toBe(-3.333);
+    expect(balance(a.me.id)).toBe(3.333);
+  });
+});
+
 describe.skipIf(!reachable)("group role authorisation", () => {
   let creatorCookie: string;
   let memberCookie: string;

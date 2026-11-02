@@ -62,6 +62,8 @@ docker compose -f compose.prod.yaml start pachas
 
 The app applies pending migrations on startup without dropping existing data.
 Take a backup before upgrading across a release that includes a migration.
+Some migrations rewrite data and cannot be undone: the move from cents to
+thousandths multiplies every stored amount by 10.
 
 ## HTTPS and updates
 

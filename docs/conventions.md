@@ -8,10 +8,15 @@ behavior.
 - Never persist amounts computed by the browser. Send selections and compute
   values on the server; client calculations are previews only. This includes
   the base-currency amount, which the server derives from amount × rate.
-- Money is stored as integer cents. Convert only through `src/shared/money.ts`
-  (`toCents`, `fromCents`, `allocateCents`), and only at the database boundary
-  in `src/server/utils/groups.ts`. Totals must match exactly; there are no
-  rounding tolerances.
+- Money is stored as integer mills (thousandths). Convert only through
+  `src/shared/money.ts`, and only at the database boundary in
+  `src/server/utils/groups.ts` (`toMills`, `fromMills`). Totals must match
+  exactly; there are no rounding tolerances.
+- Know which precision a number has. Values people type (amount, item prices,
+  tax, exact-split values) are **cents**: validate and combine them with
+  `toCents` / `round2`. Values the server derives or stores (base amount, shares,
+  balances, settlements) are **mills**: `toMills` / `round3`. `allocateMinor`
+  works on either scale.
 - Use the shared split implementation (`src/shared/splits.ts`) when both
   browser and server need it. An itemised split is computed from the bill
   stored in the expense description, never from a separate field.
@@ -110,7 +115,8 @@ behavior.
 - Generate migrations from the schema; don't write DDL by hand.
 - When a migration changes how existing data is represented, add the data
   conversion to the generated file and cover it with a migration test (see
-  `src/tests/migration-cents.test.ts`).
+  `src/tests/migration-cents.test.ts` and `migration-mills.test.ts`). A data-only
+  migration can be created with `drizzle-kit generate --custom`.
 
 ## Regression tests
 

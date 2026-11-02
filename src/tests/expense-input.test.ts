@@ -186,12 +186,24 @@ describe("required fields", () => {
     );
   });
 
-  it("rejects an amount that converts to less than a cent", () => {
+  it("rejects an amount that converts to less than a thousandth", () => {
     expect(
       err(() =>
-        readExpenseInput(body({ currency: "JPY", exchangeRate: 0.001, amount: 1 }), MEMBERS, "EUR", CATS),
+        readExpenseInput(body({ currency: "JPY", exchangeRate: 0.0001, amount: 1 }), MEMBERS, "EUR", CATS),
       ),
     ).toContain("Invalid converted amount");
+  });
+
+  it("keeps the third decimal of a converted amount", () => {
+    const out = readExpenseInput(
+      body({ currency: "USD", exchangeRate: 0.9213, amount: 10, participants: [A] }),
+      MEMBERS,
+      "EUR",
+      CATS,
+    );
+    expect(out.amount).toBe(10);
+    expect(out.amountBase).toBe(9.213);
+    expect(out.splits).toEqual({ [A]: 9.213 });
   });
 
   it("rejects an unknown split type instead of storing it", () => {

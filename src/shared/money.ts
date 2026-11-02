@@ -1,7 +1,17 @@
 /**
- * Money helpers. Amounts are persisted as integer cents; the HTTP API and the
- * UI use decimal major units. Every conversion goes through here so there is
- * exactly one rounding rule.
+ * Money helpers. There are two precisions, and mixing them up is the main way to
+ * get this wrong:
+ *
+ * - **Cents (2 decimals)** are what people type: amounts, item prices, tax and
+ *   exact-split values. Use `toCents` / `fromCents` / `round2` to validate and
+ *   combine input.
+ * - **Mills (3 decimals, thousandths)** are what is stored and computed on the
+ *   server: base-currency amounts, shares, balances and settlements. Use
+ *   `toMills` / `fromMills` / `round3`. The extra decimal lets the rounding
+ *   remainders of equal splits even out over time.
+ *
+ * The HTTP API and the UI use decimal major units; every conversion goes
+ * through here so there is exactly one rounding rule per precision.
  */
 
 /** Largest amount (in major units) accepted for a single expense or payment. */
@@ -24,20 +34,34 @@ export function round2(n: number): number {
   return fromCents(toCents(n));
 }
 
+/** Decimal major units to integer mills (thousandths); same float-noise handling as `toCents`. */
+export function toMills(amount: number): number {
+  return Math.round(Number((amount * 1000).toPrecision(15)));
+}
+
+export function fromMills(mills: number): number {
+  return mills / 1000;
+}
+
+/** Round to mills in decimal units. */
+export function round3(n: number): number {
+  return fromMills(toMills(n));
+}
+
 /**
- * Splits `totalCents` across `weights` proportionally, using the largest
+ * Splits an integer total (cents or mills) across `weights` proportionally, using the largest
  * remainder method so the parts always sum to the total exactly. Ties are
  * broken by input order, so the result is deterministic.
  */
-export function allocateCents(
-  totalCents: number,
+export function allocateMinor(
+  totalMinor: number,
   weights: number[],
 ): number[] {
   const out = weights.map(() => 0);
   const wSum = weights.reduce((a, w) => a + (w > 0 ? w : 0), 0);
-  if (!(wSum > 0) || totalCents === 0) return out;
-  const sign = totalCents < 0 ? -1 : 1;
-  const total = Math.abs(totalCents);
+  if (!(wSum > 0) || totalMinor === 0) return out;
+  const sign = totalMinor < 0 ? -1 : 1;
+  const total = Math.abs(totalMinor);
   const remainders: { i: number; r: number }[] = [];
   let assigned = 0;
   weights.forEach((w, i) => {

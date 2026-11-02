@@ -15,6 +15,7 @@ import {
   computeSplits,
   itemsTotals,
   round2,
+  round3,
   splitsToInputValues,
   type SplitType,
 } from "~/utils/splits";
@@ -219,7 +220,7 @@ async function submit() {
       ? 1
       : Number(exchangeRate.value) || 1;
   // Preview only; the server derives the base amount itself.
-  const amountBase = round2(amt * rate);
+  const amountBase = round3(amt * rate);
   const values: Record<string, number> = {};
   participants.value.forEach((id) => {
     values[id] = splitValues.value[id] ?? splitDefault(id);

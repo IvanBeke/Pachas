@@ -9,6 +9,7 @@ export {
   computeSplits,
   itemsTotals,
   round2,
+  round3,
   splitsToInputValues,
   sumSplits,
   type ExpenseItem,

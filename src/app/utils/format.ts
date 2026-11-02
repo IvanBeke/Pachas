@@ -1,3 +1,5 @@
+import { round3 } from "../../shared/money";
+
 export const CURRENCIES = [
   "EUR", "USD", "GBP", "JPY", "CHF", "SEK", "NOK", "DKK", "PLN",
   "CZK", "AUD", "CAD", "INR", "CNY", "MXN", "BRL", "NZD", "SGD", "ZAR",
@@ -9,13 +11,18 @@ export const SYMBOLS: Record<string, string> = {
   INR: "₹", CNY: "¥", MXN: "$", BRL: "R$", NZD: "NZ$", SGD: "S$", ZAR: "R",
 };
 
+/**
+ * Two decimals, or three when the amount has a non-zero thousandth: typed
+ * amounts read as usual (€12.34) while balances that carry a rounding
+ * remainder show it (€3.333).
+ */
 export function fmt(amount: number, currency: string): string {
   const sym = SYMBOLS[currency] || currency + " ";
-  const n = Math.round((amount + Number.EPSILON) * 100) / 100;
+  const n = round3(amount);
   const neg = n < 0;
   const s = Math.abs(n).toLocaleString(undefined, {
     minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
+    maximumFractionDigits: 3,
   });
   return (neg ? "-" : "") + sym + s;
 }

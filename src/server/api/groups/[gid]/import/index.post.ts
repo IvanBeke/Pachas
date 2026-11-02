@@ -91,6 +91,7 @@ export default defineEventHandler(async (event) => {
       if (!groupMember || share === undefined) continue;
       splits[groupMember] = share;
     }
+    // Both come from the CSV, which has cents: compare them at that precision.
     const totalCents = Object.values(splits).reduce((a, b) => a + toCents(b), 0);
     if (
       !Object.values(splits).every(Number.isFinite) ||

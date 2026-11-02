@@ -13,7 +13,7 @@ import {
 } from "../db/schema";
 import { publicUser, type DbUser } from "./auth";
 import { GroupRole } from "../../shared/group-roles";
-import { fromCents, toCents } from "../../shared/money";
+import { fromMills, toMills } from "../../shared/money";
 import { canGroupAction, type GroupPermissionAction } from "./group-permissions";
 import {
   lockGroupWithMembers,
@@ -31,8 +31,8 @@ import {
 
 /*
  * Money crosses this module's boundary in decimal units and is stored as
- * integer cents. Every DB read goes through `fromCents`, every write through
- * `toCents`; no other server module touches the raw columns.
+ * integer mills (thousandths). Every DB read goes through `fromMills`, every write
+ * through `toMills`; no other server module touches the raw columns.
  *
  * A category is a foreign key (integer) in the database but a string id in the
  * API, as before: reads go through `String`, writes through `Number`. The ids
@@ -75,15 +75,15 @@ function forbidden(): never {
   throw createError({ statusCode: 403, message: "forbidden" });
 }
 
-function centsMap(splits: Record<string, number>): Record<string, number> {
+function millsMap(splits: Record<string, number>): Record<string, number> {
   const out: Record<string, number> = {};
-  for (const [uid, amount] of Object.entries(splits)) out[uid] = toCents(amount);
+  for (const [uid, amount] of Object.entries(splits)) out[uid] = toMills(amount);
   return out;
 }
 
 function decimalMap(splits: Record<string, number>): Record<string, number> {
   const out: Record<string, number> = {};
-  for (const [uid, cents] of Object.entries(splits)) out[uid] = fromCents(cents);
+  for (const [uid, mills] of Object.entries(splits)) out[uid] = fromMills(mills);
   return out;
 }
 
@@ -143,7 +143,7 @@ async function loadPairwiseLedger(
   const splitsByExpense = new Map<string, Record<string, number>>();
   for (const split of splitRows) {
     const splits = splitsByExpense.get(split.expenseId) ?? {};
-    splits[split.userId] = fromCents(split.amount);
+    splits[split.userId] = fromMills(split.amount);
     splitsByExpense.set(split.expenseId, splits);
   }
   const debts = buildPairwiseDebts(
@@ -151,7 +151,7 @@ async function loadPairwiseLedger(
       paidBy: expense.paidBy,
       splits: splitsByExpense.get(expense.id) ?? {},
     })),
-    allocationRows.map((a) => ({ ...a, amount: fromCents(a.amount) })),
+    allocationRows.map((a) => ({ ...a, amount: fromMills(a.amount) })),
   );
   const balanceMap = new Map(
     balancesFromPairwiseDebts(debts).map((balance) => [balance.memberId, balance.amount]),
@@ -601,17 +601,17 @@ export async function getExpenses(gid: string) {
   ]);
   const splitMap: Record<string, Record<string, number>> = {};
   for (const s of splitRows) {
-    (splitMap[s.expenseId] ||= {})[s.userId] = fromCents(s.amount);
+    (splitMap[s.expenseId] ||= {})[s.userId] = fromMills(s.amount);
   }
   return rows.map((e) => ({
     id: e.id,
     groupId: e.groupId,
     title: e.title,
     description: e.description,
-    amount: fromCents(e.amount),
+    amount: fromMills(e.amount),
     currency: e.currency,
     exchangeRate: e.exchangeRate,
-    amountBase: fromCents(e.amountBase),
+    amountBase: fromMills(e.amountBase),
     paidBy: e.paidBy,
     category: String(e.category),
     date: e.date,
@@ -640,10 +640,10 @@ function expenseColumns(payload: ExpensePayload) {
   return {
     title: payload.title,
     description: payload.description,
-    amount: toCents(payload.amount),
+    amount: toMills(payload.amount),
     currency: payload.currency,
     exchangeRate: payload.exchangeRate,
-    amountBase: toCents(payload.amountBase),
+    amountBase: toMills(payload.amountBase),
     paidBy: payload.paidBy,
     category: Number(payload.category),
     date: payload.date,
@@ -659,7 +659,7 @@ async function insertSplits(
   const rows = Object.entries(splits).map(([userId, amount]) => ({
     expenseId,
     userId,
-    amount: toCents(amount),
+    amount: toMills(amount),
   }));
   if (rows.length) await tx.insert(expenseSplits).values(rows);
 }
@@ -788,10 +788,10 @@ export async function importExpenses(
           groupId: gid,
           title: row.title,
           description: "",
-          amount: toCents(row.amount),
+          amount: toMills(row.amount),
           currency: row.currency,
           exchangeRate: 1,
-          amountBase: toCents(row.amount),
+          amountBase: toMills(row.amount),
           paidBy: row.paidBy,
           category: Number(row.category),
           date: row.date,
@@ -804,7 +804,7 @@ export async function importExpenses(
         Object.entries(row.splits).map(([userId, amount]) => ({
           expenseId: id,
           userId,
-          amount: toCents(amount),
+          amount: toMills(amount),
         })),
       );
       if (splitRows.length) await tx.insert(expenseSplits).values(splitRows);
@@ -828,7 +828,7 @@ export async function getSettlements(gid: string) {
     groupId: s.groupId,
     from: s.fromUser,
     to: s.toUser,
-    amount: fromCents(s.amount),
+    amount: fromMills(s.amount),
     note: s.note,
     createdBy: s.createdBy,
     createdAt: s.createdAt,
@@ -856,15 +856,15 @@ export async function createSettlement(
     if (!suggested) {
       throw createError({ statusCode: 400, message: "There is no suggested payment between these members." });
     }
-    const amountCents =
-      payload.amount === undefined ? toCents(suggested.amount) : toCents(payload.amount);
-    if (!Number.isFinite(amountCents) || amountCents <= 0) {
+    const amountMills =
+      payload.amount === undefined ? toMills(suggested.amount) : toMills(payload.amount);
+    if (!Number.isFinite(amountMills) || amountMills <= 0) {
       throw createError({ statusCode: 400, message: "Amount must be greater than zero." });
     }
-    if (amountCents > toCents(suggested.amount)) {
+    if (amountMills > toMills(suggested.amount)) {
       throw createError({ statusCode: 400, message: "Amount is more than the outstanding debt." });
     }
-    const amount = fromCents(amountCents);
+    const amount = fromMills(amountMills);
     const allocation = allocatePayment(ledger.debts, payload.from, payload.to, amount);
     if (!allocation) {
       throw createError({ statusCode: 409, message: "settlement_allocation_failed" });
@@ -874,7 +874,7 @@ export async function createSettlement(
       groupId: gid,
       fromUser: payload.from,
       toUser: payload.to,
-      amount: amountCents,
+      amount: amountMills,
       note: payload.note,
       createdBy: actorId,
       createdAt: Date.now(),
@@ -885,7 +885,7 @@ export async function createSettlement(
           settlementId: sid,
           debtorId: entry.debtorId,
           creditorId: entry.creditorId,
-          amount: toCents(entry.amount),
+          amount: toMills(entry.amount),
         })),
       );
     }
@@ -951,10 +951,10 @@ export async function getRecurringExpenses(gid: string) {
     groupId: r.groupId,
     title: r.title,
     description: r.description,
-    amount: fromCents(r.amount),
+    amount: fromMills(r.amount),
     currency: r.currency,
     exchangeRate: r.exchangeRate,
-    amountBase: fromCents(r.amountBase),
+    amountBase: fromMills(r.amountBase),
     paidBy: r.paidBy,
     category: String(r.category),
     splitType: r.splitType,
@@ -972,14 +972,14 @@ function recurringColumns(payload: RecurringExpensePayload) {
   return {
     title: payload.title,
     description: payload.description,
-    amount: toCents(payload.amount),
+    amount: toMills(payload.amount),
     currency: payload.currency,
     exchangeRate: payload.exchangeRate,
-    amountBase: toCents(payload.amountBase),
+    amountBase: toMills(payload.amountBase),
     paidBy: payload.paidBy,
     category: Number(payload.category),
     splitType: payload.splitType,
-    splits: centsMap(payload.splits),
+    splits: millsMap(payload.splits),
     recurrence: payload.recurrence,
     startDate: payload.startDate,
     endDate: payload.endDate,

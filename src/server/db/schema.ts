@@ -1,7 +1,8 @@
 /**
  * Money columns (`amount`, `amount_base`, and the values inside
- * `recurring_expenses.splits`) hold integer cents. `server/utils/groups.ts`
- * converts to and from decimal units at the boundary; nothing else reads them.
+ * `recurring_expenses.splits`) hold integer mills (thousandths of a unit).
+ * `server/utils/groups.ts` converts to and from decimal units at the boundary;
+ * nothing else reads them.
  */
 import {
   index,

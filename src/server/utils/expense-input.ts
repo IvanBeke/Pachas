@@ -6,7 +6,7 @@ import {
   type ExpenseItem,
   type SplitFailure,
 } from "../../shared/splits";
-import { MAX_AMOUNT, round2, toCents } from "../../shared/money";
+import { MAX_AMOUNT, round2, round3, toCents, toMills } from "../../shared/money";
 import type { ExpensePayload } from "./groups";
 import type { CategoryContext } from "./categories";
 
@@ -177,8 +177,9 @@ export function readExpenseInput(
     .slice(0, splitType === "items" ? 20_000 : 500);
 
   const amount = readAmount(b.amount);
-  const amountBase = round2(amount * rate);
-  if (toCents(amountBase) <= 0) bad("Invalid converted amount.");
+  // The typed amount has cents; the converted one keeps a third decimal.
+  const amountBase = round3(amount * rate);
+  if (toMills(amountBase) <= 0) bad("Invalid converted amount.");
   if (amountBase > MAX_AMOUNT) bad("Amount is too large.");
 
   let items: ExpenseItem[] | undefined;
@@ -229,7 +230,7 @@ export function readExpenseInput(
   // that protects the ledger, so it verifies rather than assumes.
   if (
     !Object.values(splits).every((v) => Number.isFinite(v)) ||
-    toCents(sumSplits(splits)) !== toCents(amountBase)
+    toMills(sumSplits(splits)) !== toMills(amountBase)
   ) {
     bad("Splits do not add up to the total.");
   }

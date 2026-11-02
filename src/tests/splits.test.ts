@@ -5,6 +5,7 @@ import {
   sumSplits,
   type SplitInput,
 } from "../app/utils/splits";
+import { toMills } from "../shared/money";
 
 const A = "a";
 const B = "b";
@@ -21,7 +22,7 @@ const base = (over: Partial<SplitInput> = {}): SplitInput => ({
 
 /** Every branch must reconcile to the total or the server rejects the row. */
 const reconciles = (r: { ok: true; splits: Record<string, number> }, total: number) =>
-  Math.abs(sumSplits(r.splits) - total) < 0.005;
+  Math.abs(sumSplits(r.splits) - total) < 0.0005;
 
 describe("equal", () => {
   it("divides evenly", () => {
@@ -30,11 +31,11 @@ describe("equal", () => {
   });
 
   it("absorps the remainder on a total that won't divide", () => {
-    // €10 across 3 people cannot split evenly. The remainder lands on the last
-    // participant so the total stays exact.
+    // €10 across 3 people cannot split evenly. The spare thousandth lands on the
+    // first participant so the total stays exact.
     const r = computeSplits(base({ amountBase: 10, participants: [A, B, C], memberIds: [A, B, C] }));
     expect(r.ok).toBe(true);
-    expect(r.ok && r.splits).toEqual({ a: 3.34, b: 3.33, c: 3.33 });
+    expect(r.ok && r.splits).toEqual({ a: 3.334, b: 3.333, c: 3.333 });
     expect(reconciles(r as { ok: true; splits: Record<string, number> }, 10)).toBe(true);
   });
 
@@ -75,7 +76,7 @@ describe("exact", () => {
   });
 
   it("rejects even a single cent of drift", () => {
-    // Amounts are compared in integer cents, so there is no tolerance.
+    // Amounts are compared in integers, so there is no tolerance.
     const r = computeSplits(
       base({ splitType: "exact", amountBase: 30, values: { a: 25, b: 4.99 } }),
     );
@@ -202,12 +203,45 @@ describe("every split type reconciles to the total", () => {
       const r = computeSplits(input);
       expect(r.ok, `case ${i} unexpectedly failed`).toBe(true);
       if (!r.ok) return;
-      expect(sumSplits(r.splits)).toBeCloseTo(input.amountBase, 2);
+      expect(toMills(sumSplits(r.splits))).toBe(toMills(input.amountBase));
       for (const v of Object.values(r.splits)) {
         expect(Number.isFinite(v)).toBe(true);
       }
     },
   );
+});
+
+describe("converted amounts keep their third decimal", () => {
+  it("splits a converted total exactly, whatever the rate", () => {
+    // A deterministic sweep: typed amounts have cents, rates have 4 decimals, so the
+    // converted total has up to 3 decimals and every share must still add up to it.
+    for (let i = 1; i <= 300; i++) {
+      const amount = Math.round(((i * 7919) % 99_999) + 1) / 100;
+      const rate = (((i * 104_729) % 20_000) + 1) / 10_000;
+      const amountBase = Math.round(amount * rate * 1000) / 1000;
+      if (toMills(amountBase) <= 0) continue;
+      const members = [A, B, C];
+      for (const input of [
+        base({ splitType: "equal", amount, amountBase, participants: members, memberIds: members }),
+        base({ splitType: "shares", amount, amountBase, values: { a: 1, b: 2, c: 3 }, participants: members, memberIds: members }),
+        base({ splitType: "percent", amount, amountBase, values: { a: 33.34, b: 33.33, c: 33.33 }, participants: members, memberIds: members }),
+      ]) {
+        const r = computeSplits(input);
+        expect(r.ok, `${input.splitType} ${amount} × ${rate}`).toBe(true);
+        if (!r.ok) continue;
+        expect(toMills(sumSplits(r.splits)), `${input.splitType} ${amount} × ${rate}`).toBe(
+          toMills(amountBase),
+        );
+      }
+    }
+  });
+
+  it("shares an odd total so the extra thousandths rotate to the earliest participants", () => {
+    const r = computeSplits(base({ amountBase: 10, participants: [A, B, C], memberIds: [A, B, C] }));
+    expect(r.ok && r.splits).toEqual({ a: 3.334, b: 3.333, c: 3.333 });
+    const r2 = computeSplits(base({ amountBase: 9.001, participants: [A, B, C], memberIds: [A, B, C] }));
+    expect(r2.ok && r2.splits).toEqual({ a: 3.001, b: 3, c: 3 });
+  });
 });
 
 describe("items with tax and tip", () => {

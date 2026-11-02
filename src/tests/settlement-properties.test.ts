@@ -66,14 +66,14 @@ function residual(
   balances: { memberId: string; amount: number }[],
   transfers: SuggestedTransfer[],
 ): Record<string, number> {
-  const cents = new Map(balances.map((balance) => [balance.memberId, Math.round(balance.amount * 100)]));
+  const mills = new Map(balances.map((balance) => [balance.memberId, Math.round(balance.amount * 1000)]));
   for (const transfer of transfers) {
-    const amount = Math.round(transfer.amount * 100);
-    cents.set(transfer.from, (cents.get(transfer.from) ?? 0) + amount);
-    cents.set(transfer.to, (cents.get(transfer.to) ?? 0) - amount);
+    const amount = Math.round(transfer.amount * 1000);
+    mills.set(transfer.from, (mills.get(transfer.from) ?? 0) + amount);
+    mills.set(transfer.to, (mills.get(transfer.to) ?? 0) - amount);
   }
   return Object.fromEntries(
-    [...cents.entries()].map(([memberId, amount]) => [memberId, amount / 100]),
+    [...mills.entries()].map(([memberId, amount]) => [memberId, amount / 1000]),
   );
 }
 
@@ -88,12 +88,12 @@ function assertSettles(
     expect(
       Math.abs(amount),
       `${label}: ${memberId} net; balances=${JSON.stringify(balances)} transfers=${JSON.stringify(transfers)}`,
-    ).toBeLessThan(0.005);
+    ).toBeLessThan(0.0005);
   }
   for (const transfer of transfers) {
     expect(transfer.from, `${label}: self payment`).not.toBe(transfer.to);
     expect(transfer.amount, `${label}: amount`).toBeGreaterThan(0);
-    expect(Math.round(transfer.amount * 100) / 100).toBe(transfer.amount);
+    expect(Math.round(transfer.amount * 1000) / 1000).toBe(transfer.amount);
   }
 }
 
@@ -130,7 +130,7 @@ describe("generated expense ledgers: settlement strategies", () => {
       expect(after, `seed=${seed} allocation path`).not.toBeNull();
       const afterBalances = balancesFromPairwiseDebts(after ?? []);
       for (const balance of afterBalances) {
-        expect(Math.abs(balance.amount), `seed=${seed} ${balance.memberId}`).toBeLessThan(0.005);
+        expect(Math.abs(balance.amount), `seed=${seed} ${balance.memberId}`).toBeLessThan(0.0005);
       }
       assertSettles(debts, transfers, `simplified seed=${seed}`);
     }

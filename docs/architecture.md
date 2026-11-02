@@ -27,11 +27,16 @@ amount, including the base-currency amount. `src/shared/splits.ts` is used for
 previews and server-side calculation, so the two cannot drift. Settlement
 amounts and Splitwise imports are likewise derived or re-parsed on the server.
 
-Money is stored as **integer cents** (`src/shared/money.ts`). The API speaks
-decimal units; `src/server/utils/groups.ts` converts at the database boundary.
-Split maths runs in cents and distributes leftover cents deterministically, so
-shares always sum to the total exactly. A group's base currency is fixed once
-it has expenses because each expense stores a base-currency amount.
+Money is stored as **integer mills**, thousandths of a unit
+(`src/shared/money.ts`). The API speaks decimal units; `src/server/utils/groups.ts`
+converts at the database boundary. What people type (amounts, item prices, exact
+splits) has **cents**; everything the server derives (the base-currency amount,
+shares, balances, settlements) has the third decimal, so the leftover of an
+uneven split (10 ÷ 3 = 3.334 / 3.333 / 3.333) is a thousandth rather than a
+cent and evens out over time. Split maths distributes leftovers
+deterministically, so shares always sum to the total exactly. The UI shows two
+decimals, or three when there is a non-zero thousandth. A group's base currency
+is fixed once it has expenses because each expense stores a base-currency amount.
 
 ## Title → category links
 

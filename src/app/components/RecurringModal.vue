@@ -15,6 +15,7 @@ import { useFormCategory } from "~/composables/useFormCategory";
 import {
   computeSplits,
   round2,
+  round3,
   splitsToInputValues,
   type SplitType,
 } from "~/utils/splits";
@@ -161,7 +162,7 @@ async function submit() {
     currency.value === props.group.baseCurrency
       ? 1
       : Number(exchangeRate.value) || 1;
-  const amountBase = round2(amt * rate);
+  const amountBase = round3(amt * rate);
   // Defaults mirror what the inputs show, so a missing value behaves the same
   // here as it does on screen.
   const values: Record<string, number> = {};

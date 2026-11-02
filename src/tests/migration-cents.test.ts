@@ -64,8 +64,17 @@ describe("0004 cents migration", () => {
     `);
     db.close();
 
-    // 3. Apply the full journal.
-    migrate(source);
+    // 3. Apply every migration up to (not including) the move to mills, so the
+    //    cents values asserted below are still what is stored.
+    const throughCents = join(work, "through-cents");
+    cpSync(source, throughCents, { recursive: true });
+    const throughPath = join(throughCents, "meta/_journal.json");
+    const full = JSON.parse(readFileSync(throughPath, "utf8"));
+    const mills = full.entries.findIndex((e: { tag: string }) => e.tag.startsWith("0008"));
+    expect(mills).toBeGreaterThan(idx);
+    full.entries = full.entries.slice(0, mills);
+    writeFileSync(throughPath, JSON.stringify(full));
+    migrate(throughCents);
 
     const after = new DatabaseSync(dbPath);
     const one = <T>(sql: string) => after.prepare(sql).get() as T;

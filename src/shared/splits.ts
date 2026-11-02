@@ -5,14 +5,15 @@
  * the user made, and never trusts a client-supplied amount. The client runs
  * this same code purely to render a live preview.
  *
- * All arithmetic happens in integer cents (see `money.ts`), so every
- * successful result sums to the total exactly — there is no tolerance to tune.
- * Inputs and outputs stay in decimal units because that is what the API and
- * the forms speak.
+ * All arithmetic happens in integers (see `money.ts`), so every successful
+ * result sums to the total exactly — there is no tolerance to tune. The base
+ * total is split in mills (3 decimals); the values people type (exact amounts,
+ * item prices) are cents and only serve as weights. Inputs and outputs stay in
+ * decimal units because that is what the API and the forms speak.
  */
-import { allocateCents, fromCents, round2, toCents } from "./money";
+import { allocateMinor, fromCents, fromMills, round2, toCents, toMills } from "./money";
 
-export { round2 } from "./money";
+export { round2, round3 } from "./money";
 
 export const SPLIT_TYPES = ["equal", "exact", "percent", "shares", "items"] as const;
 export type SplitType = (typeof SPLIT_TYPES)[number];
@@ -62,11 +63,19 @@ export type SplitResult =
 const PERCENT_TOLERANCE = 0.011;
 
 export const sumSplits = (splits: Record<string, number>): number =>
-  fromCents(
-    Object.values(splits).reduce((a, b) => a + toCents(b ?? 0), 0),
+  fromMills(
+    Object.values(splits).reduce((a, b) => a + toMills(b ?? 0), 0),
   );
 
-function zip(ids: string[], cents: number[]): Record<string, number> {
+function zipMills(ids: string[], mills: number[]): Record<string, number> {
+  const out: Record<string, number> = {};
+  ids.forEach((id, i) => {
+    out[id] = fromMills(mills[i] ?? 0);
+  });
+  return out;
+}
+
+function zipCents(ids: string[], cents: number[]): Record<string, number> {
   const out: Record<string, number> = {};
   ids.forEach((id, i) => {
     out[id] = fromCents(cents[i] ?? 0);
@@ -85,7 +94,7 @@ function itemsTotalsCents(
       totals.has(id),
     );
     if (!enabled.length || !(it.price > 0)) continue;
-    const parts = allocateCents(toCents(it.price), enabled.map(() => 1));
+    const parts = allocateMinor(toCents(it.price), enabled.map(() => 1));
     enabled.forEach((id, i) => {
       totals.set(id, (totals.get(id) ?? 0) + (parts[i] ?? 0));
     });
@@ -102,7 +111,7 @@ export function itemsTotals(
   memberIds: string[],
 ): Record<string, number> {
   const totals = itemsTotalsCents(items, memberIds);
-  return zip(memberIds, memberIds.map((id) => totals.get(id) ?? 0));
+  return zipCents(memberIds, memberIds.map((id) => totals.get(id) ?? 0));
 }
 
 /**
@@ -122,7 +131,7 @@ export function computeSplits(input: SplitInput): SplitResult {
   if (!Number.isFinite(amountBase) || !Number.isFinite(amount)) {
     return { ok: false, reason: "bad_amount" };
   }
-  const totalCents = toCents(amountBase);
+  const totalMills = toMills(amountBase);
   const weightsOf = (fallback: number) =>
     participants.map((id) => values[id] ?? fallback);
   const weightsValid = (w: number[]) => w.every((v) => Number.isFinite(v) && v >= 0);
@@ -136,7 +145,7 @@ export function computeSplits(input: SplitInput): SplitResult {
     const totals = itemsTotalsCents(items, memberIds);
     const weights = memberIds.map((id) => totals.get(id) ?? 0);
     if (!weights.some((w) => w > 0)) return { ok: false, reason: "bad_items" };
-    return { ok: true, splits: zip(memberIds, allocateCents(totalCents, weights)) };
+    return { ok: true, splits: zipMills(memberIds, allocateMinor(totalMills, weights)) };
   }
 
   if (!participants.length) return { ok: false, reason: "no_participants" };
@@ -144,7 +153,7 @@ export function computeSplits(input: SplitInput): SplitResult {
   if (splitType === "equal") {
     return {
       ok: true,
-      splits: zip(participants, allocateCents(totalCents, participants.map(() => 1))),
+      splits: zipMills(participants, allocateMinor(totalMills, participants.map(() => 1))),
     };
   }
 
@@ -157,7 +166,7 @@ export function computeSplits(input: SplitInput): SplitResult {
       return { ok: false, reason: "exact_mismatch" };
     }
     // Typed in the expense currency; proportional allocation converts to base.
-    return { ok: true, splits: zip(participants, allocateCents(totalCents, typedCents)) };
+    return { ok: true, splits: zipMills(participants, allocateMinor(totalMills, typedCents)) };
   }
 
   if (splitType === "percent") {
@@ -167,7 +176,7 @@ export function computeSplits(input: SplitInput): SplitResult {
     if (Math.abs(pctSum - 100) > PERCENT_TOLERANCE) {
       return { ok: false, reason: "percent_mismatch" };
     }
-    return { ok: true, splits: zip(participants, allocateCents(totalCents, pct)) };
+    return { ok: true, splits: zipMills(participants, allocateMinor(totalMills, pct)) };
   }
 
   // shares: each member's weight is a fraction of the total.
@@ -175,7 +184,7 @@ export function computeSplits(input: SplitInput): SplitResult {
   if (!weightsValid(shares) || !(shares.reduce((a, b) => a + b, 0) > 0)) {
     return { ok: false, reason: "no_shares" };
   }
-  return { ok: true, splits: zip(participants, allocateCents(totalCents, shares)) };
+  return { ok: true, splits: zipMills(participants, allocateMinor(totalMills, shares)) };
 }
 
 /**
@@ -193,14 +202,13 @@ export function splitsToInputValues(
   amount: number = amountBase,
 ): Record<string, number> {
   const ids = Object.keys(splits);
-  const shares = ids.map((id) => toCents(splits[id] ?? 0));
+  const shares = ids.map((id) => toMills(splits[id] ?? 0));
   if (splitType === "percent" && amountBase > 0) {
     // Hundredths of a percent, allocated so the reconstruction totals 100.
-    const parts = allocateCents(10_000, shares);
-    return zip(ids, parts);
+    return zipCents(ids, allocateMinor(10_000, shares));
   }
-  if (splitType === "exact" && amountBase > 0 && toCents(amount) !== toCents(amountBase)) {
-    return zip(ids, allocateCents(toCents(amount), shares));
+  if (splitType === "exact" && amountBase > 0 && toMills(amount) !== toMills(amountBase)) {
+    return zipCents(ids, allocateMinor(toCents(amount), shares));
   }
   const out: Record<string, number> = {};
   ids.forEach((id) => {
