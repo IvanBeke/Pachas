@@ -1,4 +1,5 @@
 import { createError } from "h3";
+import { readEmoji } from "./emoji-input";
 
 const MAX_TRANSLATIONS = 20;
 const MAX_TITLE = 30;
@@ -28,7 +29,7 @@ export function readCategoryInput(
       message: `A category title is required (max ${MAX_TITLE} characters).`,
     });
   }
-  const icon = String(body.icon ?? defaults.icon ?? "").trim().slice(0, 4);
+  const icon = readEmoji(body.icon ?? defaults.icon, "");
   if (!icon) throw createError({ statusCode: 400, message: "An icon is required." });
 
   const raw = body.translations ?? {};

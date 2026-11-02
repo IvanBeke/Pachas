@@ -1,6 +1,7 @@
 import { requireUser } from "../../utils/auth";
 import { createGroup, getUsersByIds } from "../../utils/groups";
 import { readCurrency } from "../../utils/expense-input";
+import { readEmoji } from "../../utils/emoji-input";
 
 /** Bounds the `IN (...)` list built below, so a huge array cannot be sent. */
 const MAX_INITIAL_MEMBERS = 100;
@@ -27,7 +28,7 @@ export default defineEventHandler(async (event) => {
   const verified = (await getUsersByIds(requested)).map((u) => u.id);
   return createGroup(
     name.trim().slice(0, 80),
-    String(emoji || "🧾").slice(0, 4),
+    readEmoji(emoji, "🧾"),
     readCurrency(baseCurrency, "EUR"),
     me.id,
     verified,

@@ -65,6 +65,13 @@ behavior.
   the base-language value. Load categories through `useCategories()`.
 - Never use `v-html` for user-controlled text. Use `<i18n-t>` with named slots
   when translated word order must wrap components.
+- Emoji fields (group emoji, category icon) use `EmojiPicker` in the UI and
+  `readEmoji` (`server/utils/emoji-input.ts`) on the server. Never `slice` an
+  emoji: flags, skin tones and ZWJ sequences span several UTF-16 units.
+- The picker's dataset (`app/utils/emoji-data.generated.json`) is generated from
+  `emojibase-data` with `pnpm emoji:generate`; don't edit it by hand. Add custom
+  search words in `scripts/emoji-extra-keywords.json` and regenerate. A unit test
+  fails when the committed file is stale.
 
 ## Routes and shared code
 

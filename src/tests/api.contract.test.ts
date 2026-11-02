@@ -572,6 +572,31 @@ describe.skipIf(!reachable)("user profile contract", () => {
   });
 });
 
+describe.skipIf(!reachable)("group emoji contract", () => {
+  it("stores multi-codepoint emoji intact and keeps only the first one", async () => {
+    const owner = await register(`__te${RUN}`, "emoji-pass-123");
+    const read = async (gid: string) =>
+      (await api(owner.cookie, "GET", `/api/groups/${gid}`)).json.emoji;
+
+    const created = await api(owner.cookie, "POST", "/api/groups", {
+      name: `__emoji__${RUN}`,
+      emoji: "👨‍👩‍👧",
+      baseCurrency: "EUR",
+      memberIds: [owner.me.id],
+    });
+    expect(created.status).toBe(200);
+    const gid = created.json.id as string;
+    expect(await read(gid)).toBe("👨‍👩‍👧");
+
+    const flag = await api(owner.cookie, "PATCH", `/api/groups/${gid}`, { emoji: "🇪🇸🇫🇷" });
+    expect(flag.status).toBe(200);
+    expect(await read(gid)).toBe("🇪🇸");
+
+    await api(owner.cookie, "PATCH", `/api/groups/${gid}`, { emoji: "   " });
+    expect(await read(gid)).toBe("🧾");
+  });
+});
+
 describe.skipIf(!reachable)("group role authorisation", () => {
   let creatorCookie: string;
   let memberCookie: string;

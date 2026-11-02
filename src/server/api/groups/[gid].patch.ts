@@ -1,6 +1,7 @@
 import { requireUser } from "../../utils/auth";
 import { requireMember, updateGroup } from "../../utils/groups";
 import { readCurrency } from "../../utils/expense-input";
+import { readEmoji } from "../../utils/emoji-input";
 
 export default defineEventHandler(async (event) => {
   const me = await requireUser(event);
@@ -11,7 +12,7 @@ export default defineEventHandler(async (event) => {
   if (!name) {
     throw createError({ statusCode: 400, message: "A group name is required." });
   }
-  const emoji = String(b.emoji ?? group.emoji ?? "🧾").slice(0, 4) || "🧾";
+  const emoji = readEmoji(b.emoji ?? group.emoji, "🧾");
   const baseCurrency = readCurrency(b.baseCurrency, group.baseCurrency);
   const simplifyTransfers =
     typeof b.simplifyTransfers === "boolean" ? b.simplifyTransfers : undefined;

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { CURRENCIES, type Profile } from "~/utils/format";
+import EmojiPicker from "~/components/EmojiPicker.vue";
 
 const { t } = useI18n();
 
@@ -77,12 +78,7 @@ async function submit() {
         <h2>{{ t("groupModal.title") }}</h2>
         <div class="field">
           <label>{{ t("groupModal.emoji") }}</label>
-          <input
-            v-model="emoji"
-            type="text"
-            maxlength="2"
-            style="width: 60px; text-align: center; font-size: 18px"
-          />
+          <EmojiPicker v-model="emoji" />
         </div>
         <div class="field">
           <label>{{ t("groupModal.name") }}</label>

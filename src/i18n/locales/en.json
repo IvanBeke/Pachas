@@ -56,6 +56,26 @@
     "saved": "Profile updated.",
     "saving": "Saving…"
   },
+  "emojiPicker": {
+    "open": "Choose emoji",
+    "title": "Emoji picker",
+    "search": "Search emoji…",
+    "close": "Close",
+    "loading": "Loading emoji…",
+    "loadFailed": "Could not load the emoji list",
+    "empty": "No emoji found",
+    "groups": {
+      "smileys": "Smileys",
+      "people": "People",
+      "nature": "Animals & nature",
+      "food": "Food & drink",
+      "activities": "Activities",
+      "travel": "Travel & places",
+      "objects": "Objects",
+      "symbols": "Symbols",
+      "flags": "Flags"
+    }
+  },
   "groups": {
     "title": "Your groups",
     "loading": "Loading your groups…",

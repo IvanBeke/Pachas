@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useAuth } from "~/composables/useAuth";
 import { timeAgo, translatedTitle } from "~/utils/format";
+import EmojiPicker from "~/components/EmojiPicker.vue";
 
 const { t, locale } = useI18n();
 
@@ -233,7 +234,7 @@ onMounted(async () => {
         <div class="row2">
           <div class="field">
             <label>{{ t("admin.icon") }}</label>
-            <input v-model="newIcon" type="text" maxlength="4" style="width: 70px" />
+            <EmojiPicker v-model="newIcon" />
           </div>
         </div>
         <button class="btn btn-sm btn-accent" style="margin-bottom: 18px" @click="addCategory">
@@ -244,7 +245,7 @@ onMounted(async () => {
           <template v-if="editingId === c.id">
             <input v-model="editTitle" type="text" style="flex: 1" :placeholder="t('admin.title') + ' (ES)'" />
             <input v-model="editTitleEn" type="text" style="flex: 1" :placeholder="t('admin.title') + ' (EN)'" />
-            <input v-model="editIcon" type="text" maxlength="4" style="width: 56px" />
+            <EmojiPicker v-model="editIcon" />
             <button class="btn btn-sm btn-accent" @click="saveEdit(c.id)">{{ t("common.save") }}</button>
             <button class="btn btn-sm" @click="editingId = null">{{ t("common.cancel") }}</button>
           </template>

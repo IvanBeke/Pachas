@@ -4,6 +4,7 @@ import { useAuth } from "~/composables/useAuth";
 import { useProfiles } from "~/composables/useGroups";
 import AddMemberModal from "~/components/AddMemberModal.vue";
 import ImportModal from "~/components/ImportModal.vue";
+import EmojiPicker from "~/components/EmojiPicker.vue";
 import { GroupRole } from "../../../../shared/group-roles";
 
 const { t } = useI18n();
@@ -225,13 +226,7 @@ onMounted(async () => {
           <div class="row2">
             <div class="field">
               <label>{{ t("groupModal.emoji") }}</label>
-              <input
-                v-model="emoji"
-                type="text"
-                maxlength="2"
-                :disabled="!canManage"
-                style="width: 60px; text-align: center; font-size: 18px"
-              />
+              <EmojiPicker v-model="emoji" :disabled="!canManage" />
             </div>
             <div class="field">
               <label>{{ t("groupModal.name") }}</label>

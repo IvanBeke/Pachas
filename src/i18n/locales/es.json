@@ -56,6 +56,26 @@
     "saved": "Perfil actualizado.",
     "saving": "Guardando…"
   },
+  "emojiPicker": {
+    "open": "Elegir emoji",
+    "title": "Selector de emojis",
+    "search": "Buscar emoji…",
+    "close": "Cerrar",
+    "loading": "Cargando emojis…",
+    "loadFailed": "No se pudo cargar la lista de emojis",
+    "empty": "No se encontró ningún emoji",
+    "groups": {
+      "smileys": "Caras",
+      "people": "Personas",
+      "nature": "Animales y naturaleza",
+      "food": "Comida y bebida",
+      "activities": "Actividades",
+      "travel": "Viajes y lugares",
+      "objects": "Objetos",
+      "symbols": "Símbolos",
+      "flags": "Banderas"
+    }
+  },
   "groups": {
     "title": "Tus grupos",
     "loading": "Cargando tus grupos…",
