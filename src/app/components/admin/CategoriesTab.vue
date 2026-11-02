@@ -133,7 +133,7 @@ async function removeCategory() {
       </template>
     </div>
 
-    <div v-if="deleteTarget !== null" class="overlay" @click.self="deleteTarget = null">
+    <div v-if="deleteTarget !== null" class="overlay overlay-compact" @click.self="deleteTarget = null">
       <div class="sheet-wrap">
         <div class="sheet">
           <button class="close-x" @click="deleteTarget = null">✕</button>

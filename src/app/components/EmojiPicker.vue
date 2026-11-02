@@ -86,7 +86,7 @@ function pick(emoji: string) {
   <Teleport to="body">
     <div
       v-if="open"
-      class="overlay emoji-overlay"
+      class="overlay overlay-compact emoji-overlay"
       @click.self="close"
       @keydown.esc.stop="close"
     >

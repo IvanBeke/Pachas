@@ -310,32 +310,34 @@ const splitTypes = [
           :placeholder="t('expenseModal.titlePlaceholder')"
           @input="onTitleInput"
         />
-        <div class="hero-amount">
-          <button class="hero-cur" type="button" tabindex="-1" @click="showCur = !showCur">
-            {{ currency }} ▾
-          </button>
-          <input
-            v-model="amount"
-            type="number"
-            step="0.01"
-            min="0"
-            class="hero-num"
-            :placeholder="t('expenseModal.amountPlaceholder')"
-            :disabled="splitType === 'items'"
-          />
-        </div>
-        <div v-if="showCur" class="cur-list">
-          <button
-            v-for="c in CURRENCIES"
-            :key="c"
-            class="cur-item"
-            @click="
-              currency = c;
-              showCur = false;
-            "
-          >
-            {{ c }}
-          </button>
+        <div class="hero-wrap">
+          <div class="hero-amount">
+            <button class="hero-cur" type="button" tabindex="-1" @click="showCur = !showCur">
+              {{ currency }} ▾
+            </button>
+            <input
+              v-model="amount"
+              type="number"
+              step="0.01"
+              min="0"
+              class="hero-num"
+              :placeholder="t('expenseModal.amountPlaceholder')"
+              :disabled="splitType === 'items'"
+            />
+          </div>
+          <div v-if="showCur" class="cur-list">
+            <button
+              v-for="c in CURRENCIES"
+              :key="c"
+              class="cur-item"
+              @click="
+                currency = c;
+                showCur = false;
+              "
+            >
+              {{ c }}
+            </button>
+          </div>
         </div>
         <div v-if="splitType !== 'items'" class="field">
           <label>{{ t("expenseModal.description") }}</label>
@@ -549,6 +551,9 @@ const splitTypes = [
 .hero-num::placeholder {
   color: var(--line-strong);
 }
+.hero-wrap {
+  position: relative;
+}
 .cur-list {
   margin-top: 6px;
   border: 1px solid var(--line);
@@ -557,8 +562,9 @@ const splitTypes = [
   max-height: 180px;
   overflow-y: auto;
   position: absolute;
-  left: 20px;
-  right: 20px;
+  top: 100%;
+  left: 0;
+  right: 0;
   z-index: 30;
   background: var(--bg-elevated);
 }

@@ -369,7 +369,7 @@ onMounted(async () => {
       @error="showToast($event)"
     />
 
-    <div v-if="confirmLeave" class="overlay" @click.self="confirmLeave = false">
+    <div v-if="confirmLeave" class="overlay overlay-compact" @click.self="confirmLeave = false">
       <div class="sheet-wrap">
         <div class="sheet">
           <h2>{{ t("groupEdit.leave") }}</h2>
@@ -393,7 +393,7 @@ onMounted(async () => {
       </div>
     </div>
 
-    <div v-if="confirmRemoveMember" class="overlay" @click.self="confirmRemoveMember = null">
+    <div v-if="confirmRemoveMember" class="overlay overlay-compact" @click.self="confirmRemoveMember = null">
       <div class="sheet-wrap">
         <div class="sheet">
           <h2>{{ t("group.removeMember") }}</h2>
@@ -423,7 +423,7 @@ onMounted(async () => {
       </div>
     </div>
 
-    <div v-if="confirmDeleteGroup" class="overlay" @click.self="confirmDeleteGroup = false">
+    <div v-if="confirmDeleteGroup" class="overlay overlay-compact" @click.self="confirmDeleteGroup = false">
       <div class="sheet-wrap">
         <div class="sheet">
           <h2>{{ t("groupEdit.deleteGroup") }}</h2>

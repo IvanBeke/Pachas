@@ -31,7 +31,7 @@ const { logout } = useAuth();
       >
         {{ (props.user.name || "Y").trim().charAt(0).toUpperCase() }}
       </div>
-      <span>{{ props.user.name || props.user.username }}</span>
+      <span class="phone-sr-only">{{ props.user.name || props.user.username }}</span>
     </button>
     <button
       v-if="props.user.role === 'admin'"

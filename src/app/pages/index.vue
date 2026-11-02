@@ -48,7 +48,7 @@ onMounted(async () => {
 <template>
   <div>
     <div class="topbar">
-      <div class="brand"><span class="mark">P</span>{{ t("common.appName") }}</div>
+      <div class="brand"><span class="mark">P</span><span class="phone-sr-only">{{ t("common.appName") }}</span></div>
       <div class="spacer"></div>
       <AccountMenu v-if="user" :user="user" />
     </div>

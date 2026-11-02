@@ -244,34 +244,36 @@ async function submit() {
           :placeholder="t('expenseModal.titlePlaceholder')"
           @input="onTitleInput"
         />
-        <div class="hero-amount">
-          <button
-            class="hero-cur"
-            type="button"
-            tabindex="-1"
-            @click="showCur = !showCur"
-          >
-            {{ currency }} ▾
-          </button>
-          <input
-            v-model="amount"
-            type="number"
-            step="0.01"
-            min="0"
-            class="hero-num"
-            placeholder="0.00"
-          />
-        </div>
-        <div v-if="showCur" class="cur-list">
-          <button
-            v-for="c in CURRENCIES"
-            :key="c"
-            class="cur-item"
-            type="button"
-            @click="currency = c; showCur = false"
-          >
-            {{ c }}
-          </button>
+        <div class="hero-wrap">
+          <div class="hero-amount">
+            <button
+              class="hero-cur"
+              type="button"
+              tabindex="-1"
+              @click="showCur = !showCur"
+            >
+              {{ currency }} ▾
+            </button>
+            <input
+              v-model="amount"
+              type="number"
+              step="0.01"
+              min="0"
+              class="hero-num"
+              placeholder="0.00"
+            />
+          </div>
+          <div v-if="showCur" class="cur-list">
+            <button
+              v-for="c in CURRENCIES"
+              :key="c"
+              class="cur-item"
+              type="button"
+              @click="currency = c; showCur = false"
+            >
+              {{ c }}
+            </button>
+          </div>
         </div>
         <div class="row2">
           <div class="field">
@@ -423,6 +425,9 @@ async function submit() {
 .hero-cur:active {
   transform: scale(0.97);
 }
+.hero-wrap {
+  position: relative;
+}
 .cur-list {
   margin-top: 6px;
   border: 1px solid var(--line);
@@ -431,8 +436,9 @@ async function submit() {
   max-height: 180px;
   overflow-y: auto;
   position: absolute;
-  left: 20px;
-  right: 20px;
+  top: 100%;
+  left: 0;
+  right: 0;
   z-index: 30;
   background: var(--bg-elevated);
 }
