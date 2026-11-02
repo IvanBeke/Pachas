@@ -9,6 +9,11 @@ import { canGroupAction } from "../../../../utils/group-permissions";
 import { toCents } from "../../../../../shared/money";
 import { analyzeSplitwiseCsv } from "../../../../utils/splitwise";
 import { readImportRequest } from "../../../../utils/import-input";
+import { listCategoryLinks } from "../../../../utils/category-links";
+import {
+  buildTitleLinkIndex,
+  resolveImportCategory,
+} from "../../../../../shared/category-links";
 
 /**
  * Commits an import. The CSV is re-parsed here rather than trusting rows from
@@ -72,6 +77,9 @@ export default defineEventHandler(async (event) => {
     }
   }
 
+  // A title linked by an admin overrides the CSV category mapping per row.
+  const titleLinks = buildTitleLinkIndex(await listCategoryLinks());
+
   const rows: ImportRow[] = [];
   for (const r of analysis.rows) {
     const splits: Record<string, number> = {};
@@ -95,7 +103,7 @@ export default defineEventHandler(async (event) => {
       amount: r.amount,
       currency: r.currency,
       paidBy: memberMapping[r.paidBy] ?? "",
-      category: categoryMapping[r.category] || "general",
+      category: resolveImportCategory(titleLinks, r.title, categoryMapping[r.category], "general"),
       date: r.date,
       splits,
     });

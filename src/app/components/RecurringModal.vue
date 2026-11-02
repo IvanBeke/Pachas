@@ -61,6 +61,7 @@ const splitValues = ref<Record<string, number>>(
 
 const { categories, load: loadCategories } = useCategories();
 onMounted(loadCategories);
+const { onTitleInput, markCategoryTouched } = useTitleCategory(category);
 
 const memberIds = computed(() => props.group.memberIds || []);
 const showRate = computed(() => currency.value !== props.group.baseCurrency);
@@ -237,6 +238,7 @@ async function submit() {
           type="text"
           class="hero-input"
           :placeholder="t('expenseModal.titlePlaceholder')"
+          @input="onTitleInput"
         />
         <div class="hero-amount">
           <button
@@ -277,7 +279,7 @@ async function submit() {
           </div>
           <div class="field">
             <label>{{ t("expenseModal.category") }}</label>
-            <select v-model="category">
+            <select v-model="category" @change="markCategoryTouched">
               <option v-for="c in categories" :key="c.id" :value="c.id">
                 {{ c.icon }} {{ translatedTitle(c, locale) }}
               </option>

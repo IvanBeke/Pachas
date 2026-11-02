@@ -52,6 +52,7 @@ const currency = ref(props.group.baseCurrency);
 const exchangeRate = ref(1);
 const paidBy = ref(props.me.id);
 const category = ref("general");
+const { onTitleInput, markCategoryTouched } = useTitleCategory(category);
 const date = ref(todayStr());
 
 
@@ -303,6 +304,7 @@ const splitTypes = [
           type="text"
           class="hero-input"
           :placeholder="t('expenseModal.titlePlaceholder')"
+          @input="onTitleInput"
         />
         <div class="hero-amount">
           <button class="hero-cur" type="button" @click="showCur = !showCur">
@@ -350,7 +352,7 @@ const splitTypes = [
           </div>
           <div class="field">
             <label>{{ t("expenseModal.category") }}</label>
-            <select v-model="category">
+            <select v-model="category" @change="markCategoryTouched">
               <option v-for="c in categories" :key="c.id" :value="c.id">
                 {{ c.icon }} {{ translatedTitle(c, locale) }}
               </option>

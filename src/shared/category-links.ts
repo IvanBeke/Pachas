@@ -29,3 +29,34 @@ export function categoryForTitle(index: TitleLinkIndex, title: string): number |
   const key = normalizeText(title);
   return key ? (index.get(key) ?? null) : null;
 }
+
+/**
+ * The category a form should show after the user edits the title.
+ *
+ * A choice the user made by hand always wins (`touched`), and a title without
+ * a link leaves the current category alone — a link only ever sets a
+ * category, it never reverts one.
+ */
+export function categoryAfterTitleEdit(
+  current: string,
+  touched: boolean,
+  linked: number | null,
+): string {
+  if (touched || linked === null) return current;
+  return String(linked);
+}
+
+/**
+ * Category for a Splitwise import row: a title link overrides the category the
+ * user mapped the CSV category to, which in turn beats `fallback`.
+ */
+export function resolveImportCategory(
+  index: TitleLinkIndex,
+  title: string,
+  mapped: string | undefined,
+  fallback: string,
+): string {
+  const linked = categoryForTitle(index, title);
+  if (linked !== null) return String(linked);
+  return mapped || fallback;
+}

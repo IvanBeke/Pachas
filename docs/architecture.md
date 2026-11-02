@@ -44,6 +44,12 @@ whole title; the matcher in `src/shared/category-links.ts` is used by both
 the browser and the server. Deleting a category re-points its links to the
 category its expenses move to, instead of letting `ON DELETE CASCADE` drop them.
 
+Links are applied in two places. In the expense and recurring-template forms the
+category follows the title as the user types, until they pick a category
+themselves; editing never changes a stored category on open, and the server does
+not override the category it is sent. The Splitwise import resolves each row on
+the server: a linked title wins over the CSV category mapping.
+
 ## Recurring expenses
 
 A recurring expense is a template (weekly, monthly or yearly, with a start date
