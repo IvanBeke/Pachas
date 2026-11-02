@@ -10,6 +10,8 @@ import {
   type RecurringExpense,
 } from "~/utils/format";
 import { useProfiles } from "~/composables/useGroups";
+import { useAutofocus } from "~/composables/useAutofocus";
+import { useTitleCategory } from "~/composables/useTitleCategory";
 import {
   computeSplits,
   round2,
@@ -62,6 +64,8 @@ const splitValues = ref<Record<string, number>>(
 const { categories, load: loadCategories } = useCategories();
 onMounted(loadCategories);
 const { onTitleInput, markCategoryTouched } = useTitleCategory(category);
+const titleInput = ref<HTMLInputElement | null>(null);
+useAutofocus(titleInput);
 
 const memberIds = computed(() => props.group.memberIds || []);
 const showRate = computed(() => currency.value !== props.group.baseCurrency);
@@ -234,6 +238,7 @@ async function submit() {
           }}
         </h2>
         <input
+          ref="titleInput"
           v-model="title"
           type="text"
           class="hero-input"
@@ -244,6 +249,7 @@ async function submit() {
           <button
             class="hero-cur"
             type="button"
+            tabindex="-1"
             @click="showCur = !showCur"
           >
             {{ currency }} ▾

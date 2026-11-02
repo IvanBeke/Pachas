@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { CURRENCIES, type Profile } from "~/utils/format";
 import EmojiPicker from "~/components/EmojiPicker.vue";
+import { useAutofocus } from "~/composables/useAutofocus";
 
 const { t } = useI18n();
 
@@ -12,6 +13,8 @@ const emit = defineEmits<{
 
 const emoji = ref("🧾");
 const name = ref("");
+const nameInput = ref<HTMLInputElement | null>(null);
+useAutofocus(nameInput);
 const currency = ref("EUR");
 const search = ref("");
 const hits = ref<Profile[]>([]);
@@ -83,6 +86,7 @@ async function submit() {
         <div class="field">
           <label>{{ t("groupModal.name") }}</label>
           <input
+            ref="nameInput"
             v-model="name"
             type="text"
             :placeholder="t('groupModal.namePlaceholder')"

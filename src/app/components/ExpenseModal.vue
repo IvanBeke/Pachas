@@ -9,6 +9,8 @@ import {
   type Profile,
 } from "~/utils/format";
 import { useProfiles } from "~/composables/useGroups";
+import { useAutofocus } from "~/composables/useAutofocus";
+import { useTitleCategory } from "~/composables/useTitleCategory";
 import {
   computeSplits,
   itemsTotals,
@@ -53,6 +55,8 @@ const exchangeRate = ref(1);
 const paidBy = ref(props.me.id);
 const category = ref("general");
 const { onTitleInput, markCategoryTouched } = useTitleCategory(category);
+const titleInput = ref<HTMLInputElement | null>(null);
+useAutofocus(titleInput);
 const date = ref(todayStr());
 
 
@@ -300,6 +304,7 @@ const splitTypes = [
         <button class="close-x" @click="emit('close')">✕</button>
         <h2>{{ props.initial ? t("expenseModal.editTitle") : t("expenseModal.title") }}</h2>
         <input
+          ref="titleInput"
           v-model="title"
           type="text"
           class="hero-input"
@@ -307,7 +312,7 @@ const splitTypes = [
           @input="onTitleInput"
         />
         <div class="hero-amount">
-          <button class="hero-cur" type="button" @click="showCur = !showCur">
+          <button class="hero-cur" type="button" tabindex="-1" @click="showCur = !showCur">
             {{ currency }} ▾
           </button>
           <input
