@@ -244,9 +244,9 @@ describe("converted amounts keep their third decimal", () => {
   });
 });
 
-describe("items with tax and tip", () => {
-  it("spreads extras in proportion to each person's items", () => {
-    // 20 of items (a: 5, b: 15) plus 4 of tax => total 24.
+describe("items with a converted total", () => {
+  it("splits the base total in proportion to each person's items", () => {
+    // 20 of items (a: 5, b: 15) in a currency converted to a base total of 24.
     const r = computeSplits(
       base({
         splitType: "items",

@@ -2,7 +2,7 @@
  * Money helpers. There are two precisions, and mixing them up is the main way to
  * get this wrong:
  *
- * - **Cents (2 decimals)** are what people type: amounts, item prices, tax and
+ * - **Cents (2 decimals)** are what people type: amounts, item prices and
  *   exact-split values. Use `toCents` / `fromCents` / `round2` to validate and
  *   combine input.
  * - **Mills (3 decimals, thousandths)** are what is stored and computed on the

@@ -17,7 +17,7 @@ const { nameOf } = useProfiles();
 const { iconOf } = useCategories();
 
 // One-line summary for items-split expenses
-// ("3 items · Ramen, Gyoza · +tax · +18% tip").
+// ("3 items · Ramen, Gyoza").
 // Falls back to the raw description when it isn't an items payload.
 function subtitleOf(e: Expense): string | null {
   if (e.splitType === "items") {
@@ -28,11 +28,7 @@ function subtitleOf(e: Expense): string | null {
       .filter(Boolean)
       .slice(0, 3)
       .join(", ");
-    let s =
-      `${parsed.items.length} ${t("expenseModal.splitItems")}` + (names ? ` · ${names}` : "");
-    if (parsed.tax > 0) s += " · +tax";
-    if (parsed.tipPercent > 0) s += ` · +${parsed.tipPercent}% tip`;
-    return s;
+    return `${parsed.items.length} ${t("expenseModal.splitItems")}` + (names ? ` · ${names}` : "");
   }
   return e.title && e.description ? e.description : null;
 }

@@ -140,8 +140,7 @@ export function computeSplits(input: SplitInput): SplitResult {
     const items = input.items ?? [];
     if (!items.length) return { ok: false, reason: "bad_items" };
     // Items are priced in the expense currency. Allocating the base total in
-    // proportion to each person's item subtotal converts currency and spreads
-    // any tax or tip in one exact step.
+    // proportion to each person's item subtotal converts currency in one exact step.
     const totals = itemsTotalsCents(items, memberIds);
     const weights = memberIds.map((id) => totals.get(id) ?? 0);
     if (!weights.some((w) => w > 0)) return { ok: false, reason: "bad_items" };

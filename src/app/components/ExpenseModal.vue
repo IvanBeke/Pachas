@@ -67,7 +67,7 @@ const startDate = ref(todayStr());
 const endDate = ref("");
 const participants = ref<string[]>([...(props.group.memberIds || [])]);
 const splitValues = ref<Record<string, number>>({});
-const items = ref<ItemsData>({ items: [], tax: 0, tipPercent: 0 });
+const items = ref<ItemsData>({ items: [] });
 const showItems = ref(false);
 const showCur = ref(false);
 
@@ -94,7 +94,7 @@ watch(
     if (splitType.value === "items") {
       try {
         const parsed = JSON.parse(val.description) as ItemsData;
-        if (parsed && Array.isArray(parsed.items)) items.value = parsed;
+        if (parsed && Array.isArray(parsed.items)) items.value = { items: parsed.items };
       } catch {
         // Not an items payload; the form starts with an empty bill.
       }

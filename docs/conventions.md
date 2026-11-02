@@ -13,7 +13,7 @@ behavior.
   `src/server/utils/groups.ts` (`toMills`, `fromMills`). Totals must match
   exactly; there are no rounding tolerances.
 - Know which precision a number has. Values people type (amount, item prices,
-  tax, exact-split values) are **cents**: validate and combine them with
+  exact-split values) are **cents**: validate and combine them with
   `toCents` / `round2`. Values the server derives or stores (base amount, shares,
   balances, settlements) are **mills**: `toMills` / `round3`. `allocateMinor`
   works on either scale.

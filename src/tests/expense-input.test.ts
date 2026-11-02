@@ -108,13 +108,43 @@ describe("the server computes the splits, it does not accept them", () => {
         amountBase: 26,
         items,
         participants: [A, B],
-        description: JSON.stringify({ items, tax: 0, tipPercent: 0 }),
+        description: JSON.stringify({ items }),
       }),
       MEMBERS,
       "EUR",
       CATS,
     );
     expect(out.splits).toEqual({ [A]: 10, [B]: 16 });
+  });
+
+  it("stores the bill exactly as validated, dropping anything else in it", () => {
+    const description = JSON.stringify({
+      items: [{ name: "  Ramen  ", price: 20.004, members: [A, B, A], extra: "x" }],
+      note: "not part of a bill",
+    });
+    const out = readExpenseInput(
+      body({ splitType: "items", amount: 20, amountBase: 20, participants: [A, B], description }),
+      MEMBERS,
+      "EUR",
+      CATS,
+    );
+    expect(JSON.parse(out.description)).toEqual({
+      items: [{ name: "Ramen", price: 20, members: [A, B] }],
+    });
+  });
+
+  it("requires the items to add up to the amount exactly", () => {
+    const description = JSON.stringify({ items: [{ name: "Ramen", price: 20, members: [A, B] }] });
+    expect(
+      err(() =>
+        readExpenseInput(
+          body({ splitType: "items", amount: 21, amountBase: 21, participants: [A, B], description }),
+          MEMBERS,
+          "EUR",
+          CATS,
+        ),
+      ),
+    ).toBe("Items total does not match the expense total.");
   });
 
   it("splits from the stored bill, ignoring a separate items field", () => {
@@ -126,7 +156,7 @@ describe("the server computes the splits, it does not accept them", () => {
         splitType: "items",
         amount: 26,
         items: [{ name: "Ramen", price: 26, members: [B] }],
-        description: JSON.stringify({ items: bill, tax: 0, tipPercent: 0 }),
+        description: JSON.stringify({ items: bill }),
       }),
       MEMBERS,
       "EUR",
@@ -302,7 +332,7 @@ describe("split validation happens server-side", () => {
           body({
             splitType: "items",
             items: [],
-            description: JSON.stringify({ items: [], tax: 0, tipPercent: 0 }),
+            description: JSON.stringify({ items: [] }),
           }),
           MEMBERS,
           "EUR",

@@ -114,8 +114,6 @@ function done() {
       price: Math.round(it.price * 100) / 100,
       members: [...it.members],
     })),
-    tax: 0,
-    tipPercent: 0,
   });
 }
 </script>

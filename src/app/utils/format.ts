@@ -82,13 +82,6 @@ export interface ExpenseItem {
 
 export interface ItemsData {
   items: ExpenseItem[];
-  tax: number;
-  tipPercent: number;
-}
-
-function num(v: unknown, fallback = 0): number {
-  const n = typeof v === "number" ? v : Number(v);
-  return Number.isFinite(n) ? n : fallback;
 }
 
 export function parseItems(description: string): ItemsData | null {
@@ -96,8 +89,6 @@ export function parseItems(description: string): ItemsData | null {
   try {
     const parsed = JSON.parse(description) as {
       items?: { name?: unknown; price?: unknown; members?: unknown }[];
-      tax?: unknown;
-      tipPercent?: unknown;
     };
     if (!parsed || !Array.isArray(parsed.items)) return null;
     const items: ExpenseItem[] = parsed.items.map((it) => ({
@@ -107,7 +98,7 @@ export function parseItems(description: string): ItemsData | null {
         ? it.members.filter((m): m is string => typeof m === "string")
         : [],
     }));
-    return { items, tax: num(parsed.tax), tipPercent: num(parsed.tipPercent) };
+    return { items };
   } catch {
     return null;
   }

@@ -97,8 +97,6 @@ describe("readExpenseInput rejects non-finite amounts", () => {
   it("rejects non-finite item prices", () => {
     const items = {
       items: [{ name: "Thing", price: "1e400", members: [MEMBERS[0]] }],
-      tax: 0,
-      tipPercent: 0,
     };
     expect(
       rejects({ splitType: "items", description: JSON.stringify(items) }),

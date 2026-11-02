@@ -83,30 +83,19 @@ export function readAmount(value: unknown, message = "Amount must be greater tha
   return round2(n);
 }
 
-interface ParsedItems {
-  items: ExpenseItem[];
-  tax: number;
-  tipPercent: number;
-}
-
 /**
  * Parses and validates the itemised bill carried in `description`. This is the
  * only source of item data: the split is computed from exactly what is stored,
  * so the stored bill and the stored shares cannot disagree.
  */
-function readItems(description: string, memberIds: string[]): ParsedItems {
-  let parsed: { items?: unknown; tax?: unknown; tipPercent?: unknown };
+function readItems(description: string, memberIds: string[]): ExpenseItem[] {
+  let parsed: { items?: unknown };
   try {
     parsed = JSON.parse(description);
   } catch {
     bad("Invalid items payload.");
   }
   if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.items)) {
-    bad("Invalid items payload.");
-  }
-  const tax = Number(parsed.tax ?? 0);
-  const tipPercent = Number(parsed.tipPercent ?? 0);
-  if (!Number.isFinite(tax) || tax < 0 || !Number.isFinite(tipPercent) || tipPercent < 0 || tipPercent > 100) {
     bad("Invalid items payload.");
   }
   if (!parsed.items.length) bad("At least one item is required.");
@@ -136,7 +125,7 @@ function readItems(description: string, memberIds: string[]): ParsedItems {
     }
     items.push({ name: raw.name.trim().slice(0, 80), price: round2(price), members });
   }
-  return { items, tax: round2(tax), tipPercent };
+  return items;
 }
 
 /**
@@ -172,7 +161,7 @@ export function readExpenseInput(
   }
 
   // Items payloads carry member UUIDs and need headroom; plain text stays short.
-  const description = String(b.description ?? "")
+  let description = String(b.description ?? "")
     .trim()
     .slice(0, splitType === "items" ? 20_000 : 500);
 
@@ -184,13 +173,13 @@ export function readExpenseInput(
 
   let items: ExpenseItem[] | undefined;
   if (splitType === "items") {
-    const parsed = readItems(description, memberIds);
-    const subtotal = parsed.items.reduce((a, it) => a + toCents(it.price), 0);
-    const tip = Math.round((subtotal * parsed.tipPercent) / 100);
-    if (subtotal + toCents(parsed.tax) + tip !== toCents(amount)) {
+    items = readItems(description, memberIds);
+    const subtotal = items.reduce((a, it) => a + toCents(it.price), 0);
+    if (subtotal !== toCents(amount)) {
       bad("Items total does not match the expense total.");
     }
-    items = parsed.items;
+    // Store the bill exactly as validated, so what is saved is what the shares came from.
+    description = JSON.stringify({ items });
   }
 
   const paidBy = String(b.paidBy ?? "");
