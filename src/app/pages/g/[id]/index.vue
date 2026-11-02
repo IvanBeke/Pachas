@@ -12,6 +12,7 @@ import ExpensesTab from "~/components/group/ExpensesTab.vue";
 import BalancesTab from "~/components/group/BalancesTab.vue";
 import ActivityTab from "~/components/group/ActivityTab.vue";
 import RecurringTab from "~/components/group/RecurringTab.vue";
+import NetBalances from "~/components/group/NetBalances.vue";
 import { GroupRole } from "../../../../shared/group-roles";
 
 const { t } = useI18n();
@@ -220,45 +221,58 @@ onMounted(async () => {
           </button>
         </div>
 
-        <ExpensesTab
-          v-if="tab === 'expenses'"
-          :expenses="expenses"
-          :me="user"
-          :base-currency="group.baseCurrency"
-          :can-manage-all="isGroupElevated"
-          :confirm-delete="confirmDelete"
-          @edit="openExpense"
-          @delete="delExpense"
-        />
-        <BalancesTab
-          v-if="tab === 'balances'"
-          :member-ids="group.memberIds"
-          :balances="balances"
-          :transfers="transfers"
-          :me="user"
-          :base-currency="group.baseCurrency"
-          :is-elevated="isGroupElevated"
-          @settle="quickSettle"
-        />
-        <ActivityTab
-          v-if="tab === 'activity'"
-          :expenses="expenses"
-          :settlements="settlements"
-          :me="user"
-          :base-currency="group.baseCurrency"
-          :confirm-delete="confirmDelete"
-          @delete-settlement="delSettlement"
-        />
-        <RecurringTab
-          v-if="tab === 'recurring'"
-          :recurring="recurring"
-          :me="user"
-          :base-currency="group.baseCurrency"
-          :can-manage-all="isGroupElevated"
-          @add="openRecurring(null)"
-          @edit="openRecurring"
-          @delete="delRecurring"
-        />
+        <div class="group-layout" :class="{ 'has-aside': tab === 'expenses' }">
+          <div class="group-main">
+            <ExpensesTab
+              v-if="tab === 'expenses'"
+              :expenses="expenses"
+              :me="user"
+              :base-currency="group.baseCurrency"
+              :can-manage-all="isGroupElevated"
+              :confirm-delete="confirmDelete"
+              @edit="openExpense"
+              @delete="delExpense"
+            />
+            <BalancesTab
+              v-if="tab === 'balances'"
+              :member-ids="group.memberIds"
+              :balances="balances"
+              :transfers="transfers"
+              :me="user"
+              :base-currency="group.baseCurrency"
+              :is-elevated="isGroupElevated"
+              @settle="quickSettle"
+            />
+            <ActivityTab
+              v-if="tab === 'activity'"
+              :expenses="expenses"
+              :settlements="settlements"
+              :me="user"
+              :base-currency="group.baseCurrency"
+              :confirm-delete="confirmDelete"
+              @delete-settlement="delSettlement"
+            />
+            <RecurringTab
+              v-if="tab === 'recurring'"
+              :recurring="recurring"
+              :me="user"
+              :base-currency="group.baseCurrency"
+              :can-manage-all="isGroupElevated"
+              @add="openRecurring(null)"
+              @edit="openRecurring"
+              @delete="delRecurring"
+            />
+          </div>
+          <NetBalances
+            v-if="tab === 'expenses'"
+            class="group-aside"
+            stacked
+            :member-ids="group.memberIds"
+            :balances="balances"
+            :me="user"
+            :base-currency="group.baseCurrency"
+          />
+        </div>
       </template>
     </main>
     <div v-if="group" class="fab-bar">

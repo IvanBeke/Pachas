@@ -92,6 +92,12 @@ so unchanged polls get an empty `304`. Polling backs off while nothing changes
 and pauses while the tab is hidden. The settlement plan is cached per group
 version on the server.
 
+From 768px wide the Expenses tab shows the net balances in a column inside the
+usual page width (`NetBalances`, shared with the Balances tab), using the free
+space in the list rows. The column is only as wide as its content (capped at
+200px) and the list takes the rest. It reuses the balances already polled from
+`/summary`, so it needs no extra request.
+
 ## Database and startup
 
 `src/server/db/schema.ts` is the schema source of truth. Generate migrations

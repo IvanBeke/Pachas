@@ -154,6 +154,16 @@
   .fab{ flex:1; padding:14px; border-radius:999px; font-size:14.5px; font-weight:700; border:1px solid var(--line-strong); background:var(--bg-elevated); color:var(--ink); cursor:pointer; box-shadow:0 6px 18px rgba(0,0,0,0.12); }
   .fab.primary{ background:var(--accent); border-color:var(--accent); color:var(--accent-ink); }
 
+  /* ---------- balances beside the expense list ---------- */
+  /* On the Expenses tab from 768px up, the net balances sit in a column inside the usual
+     page width, using the free space in the list rows. The column is only as wide as its
+     content (capped, longer names wrap); the list takes the rest. */
+  .group-aside{ display:none; }
+  @media (min-width:768px){
+    .group-layout.has-aside{ display:grid; grid-template-columns:minmax(0,1fr) max-content; gap:24px; align-items:start; }
+    .group-layout.has-aside .group-aside{ display:block; position:sticky; top:76px; max-width:200px; overflow-wrap:anywhere; }
+  }
+
   /* ---------- modal ---------- */
   .overlay{ position:fixed; inset:0; background:rgba(10,15,12,0.45); z-index:50; display:flex; align-items:flex-end; justify-content:center; }
   @media (min-width:640px){ .overlay{ align-items:center; } }

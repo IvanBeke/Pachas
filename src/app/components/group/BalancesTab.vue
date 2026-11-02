@@ -2,6 +2,7 @@
 import { fmt, type Profile } from "~/utils/format";
 import { useProfiles } from "~/composables/useGroups";
 import type { Balance, SuggestedTransfer } from "~/composables/useGroupDetail";
+import NetBalances from "~/components/group/NetBalances.vue";
 
 const props = defineProps<{
   memberIds: string[];
@@ -16,15 +17,6 @@ const emit = defineEmits<{ settle: [from: string, to: string] }>();
 const { t } = useI18n();
 const { nameOf } = useProfiles();
 
-const rows = computed(() => {
-  const byId = new Map(props.balances.map((b) => [b.memberId, b.amount]));
-  return props.memberIds.map((id) => {
-    const amount = byId.get(id) ?? 0;
-    const state = amount === 0 ? "neu" : amount > 0 ? "pos" : "neg";
-    return { id, amount, state };
-  });
-});
-
 const visibleTransfers = computed(() =>
   props.isElevated
     ? props.transfers
@@ -34,22 +26,12 @@ const visibleTransfers = computed(() =>
 
 <template>
   <div>
-    <div class="section-label">{{ t("group.netBalance") }}</div>
-    <div v-for="row in rows" :key="row.id" class="balance-row">
-      <span class="name">{{ nameOf(row.id, me) }}</span>
-      <span class="balance-state">
-        {{
-          row.state === "neu"
-            ? t("group.settledUp")
-            : row.state === "pos"
-              ? t("group.isOwed")
-              : t("group.owes")
-        }}
-      </span>
-      <span class="amt" :class="row.state">
-        {{ fmt(Math.abs(row.amount), baseCurrency) }}
-      </span>
-    </div>
+    <NetBalances
+      :member-ids="memberIds"
+      :balances="balances"
+      :me="me"
+      :base-currency="baseCurrency"
+    />
     <div class="section-label" style="margin-top: 22px">
       {{ t("group.suggestedSettlements") }}
     </div>
@@ -82,11 +64,3 @@ const visibleTransfers = computed(() =>
     </div>
   </div>
 </template>
-
-<style scoped>
-.balance-state {
-  font-size: 12px;
-  color: var(--ink-faint);
-  margin-right: 8px;
-}
-</style>
