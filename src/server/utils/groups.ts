@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 import { and, count, desc, eq, inArray, ne } from "drizzle-orm";
 import { runtimeDb as db } from "./client";
 import {
-  categories,
   expenseSplits,
   expenses,
   groupMembers,
@@ -34,6 +33,10 @@ import {
  * Money crosses this module's boundary in decimal units and is stored as
  * integer cents. Every DB read goes through `fromCents`, every write through
  * `toCents`; no other server module touches the raw columns.
+ *
+ * A category is a foreign key (integer) in the database but a string id in the
+ * API, as before: reads go through `String`, writes through `Number`. The ids
+ * were validated against `categories` by `readCategory` beforehand.
  */
 
 export interface GroupMember {
@@ -610,7 +613,7 @@ export async function getExpenses(gid: string) {
     exchangeRate: e.exchangeRate,
     amountBase: fromCents(e.amountBase),
     paidBy: e.paidBy,
-    category: e.category,
+    category: String(e.category),
     date: e.date,
     splitType: e.splitType,
     createdBy: e.createdBy,
@@ -642,7 +645,7 @@ function expenseColumns(payload: ExpensePayload) {
     exchangeRate: payload.exchangeRate,
     amountBase: toCents(payload.amountBase),
     paidBy: payload.paidBy,
-    category: payload.category,
+    category: Number(payload.category),
     date: payload.date,
     splitType: payload.splitType,
   };
@@ -749,11 +752,6 @@ export async function updateExpenseIfAllowed(
 // Import
 // ---------------------------------------------------------------------------
 
-export async function listCategoryIds(): Promise<Set<string>> {
-  const rows = await db.select({ id: categories.id }).from(categories);
-  return new Set(rows.map((r) => String(r.id)));
-}
-
 export interface ImportRow {
   title: string;
   amount: number;
@@ -795,7 +793,7 @@ export async function importExpenses(
           exchangeRate: 1,
           amountBase: toCents(row.amount),
           paidBy: row.paidBy,
-          category: row.category,
+          category: Number(row.category),
           date: row.date,
           splitType: "exact",
           createdBy: creatorId,
@@ -958,7 +956,7 @@ export async function getRecurringExpenses(gid: string) {
     exchangeRate: r.exchangeRate,
     amountBase: fromCents(r.amountBase),
     paidBy: r.paidBy,
-    category: r.category,
+    category: String(r.category),
     splitType: r.splitType,
     splits: decimalMap(r.splits),
     recurrence: r.recurrence,
@@ -979,7 +977,7 @@ function recurringColumns(payload: RecurringExpensePayload) {
     exchangeRate: payload.exchangeRate,
     amountBase: toCents(payload.amountBase),
     paidBy: payload.paidBy,
-    category: payload.category,
+    category: Number(payload.category),
     splitType: payload.splitType,
     splits: centsMap(payload.splits),
     recurrence: payload.recurrence,

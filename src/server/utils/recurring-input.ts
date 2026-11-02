@@ -1,6 +1,7 @@
 import { createError } from "h3";
 import { isDateOnly, readExpenseInput } from "./expense-input";
 import type { RecurringExpensePayload } from "./groups";
+import type { CategoryContext } from "./categories";
 
 export const RECURRENCES = ["week", "month", "year"] as const;
 export type Recurrence = (typeof RECURRENCES)[number];
@@ -44,6 +45,7 @@ export function readRecurringInput(
   b: Record<string, unknown>,
   memberIds: string[],
   baseCurrency: string,
+  categories: CategoryContext,
 ): RecurringExpensePayload {
   const recurrence = String(b.recurrence || "") as Recurrence;
   const { startDate, endDate } = readRecurringDates(b.startDate, b.endDate);
@@ -54,7 +56,7 @@ export function readRecurringInput(
     });
   }
   // Same authoritative path as a one-off expense: the server computes splits.
-  const base = readExpenseInput(b, memberIds, baseCurrency);
+  const base = readExpenseInput(b, memberIds, baseCurrency, categories);
   return {
     title: base.title,
     description: base.description,

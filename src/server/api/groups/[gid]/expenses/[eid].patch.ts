@@ -1,6 +1,7 @@
 import { requireUser } from "../../../../utils/auth";
 import { requireMember, updateExpenseIfAllowed } from "../../../../utils/groups";
 import { readExpenseInput } from "../../../../utils/expense-input";
+import { loadCategoryContext } from "../../../../utils/categories";
 
 export default defineEventHandler(async (event) => {
   const me = await requireUser(event);
@@ -8,11 +9,12 @@ export default defineEventHandler(async (event) => {
   const eid = requireParam(event, "eid");
   await requireMember(gid, me.id);
   const body = await readJsonObject(event);
+  const categories = await loadCategoryContext();
   // Validated against the member list inside the write transaction.
   const ok = await updateExpenseIfAllowed(
     gid,
     eid,
-    (group) => readExpenseInput(body, group.memberIds, group.baseCurrency),
+    (group) => readExpenseInput(body, group.memberIds, group.baseCurrency, categories),
     me.id,
   );
   if (!ok) throw createError({ statusCode: 404, message: "Expense not found." });

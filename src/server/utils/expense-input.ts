@@ -8,6 +8,7 @@ import {
 } from "../../shared/splits";
 import { MAX_AMOUNT, round2, toCents } from "../../shared/money";
 import type { ExpensePayload } from "./groups";
+import type { CategoryContext } from "./categories";
 
 /** Human-readable 400s for each way a split selection can be invalid. */
 const SPLIT_ERRORS: Record<SplitFailure, string> = {
@@ -39,6 +40,17 @@ interface RawBody {
 
 function bad(message: string): never {
   throw createError({ statusCode: 400, message });
+}
+
+/**
+ * The stored category id for an expense. A missing or empty category becomes
+ * the default; anything else must be a real category.
+ */
+export function readCategory(value: unknown, categories: CategoryContext): string {
+  const raw = value === undefined || value === null ? "" : String(value).trim();
+  if (raw === "") return categories.defaultId;
+  if (!categories.validIds.has(raw)) bad("bad_category");
+  return raw;
 }
 
 /** A real calendar date in `YYYY-MM-DD` form (rejects e.g. 2024-02-31). */
@@ -139,6 +151,7 @@ export function readExpenseInput(
   b: RawBody,
   memberIds: string[],
   baseCurrency: string,
+  categories: CategoryContext,
 ): ExpensePayload {
   if (!b || typeof b !== "object") bad("Invalid request body.");
   const title = String(b.title ?? "").trim().slice(0, 80);
@@ -229,7 +242,7 @@ export function readExpenseInput(
     exchangeRate: rate,
     amountBase,
     paidBy,
-    category: String(b.category ?? "general").slice(0, 30) || "general",
+    category: readCategory(b.category, categories),
     date: isDateOnly(b.date) ? b.date : new Date().toISOString().slice(0, 10),
     splitType,
     splits,

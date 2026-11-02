@@ -45,10 +45,26 @@ the browser and the server. Deleting a category re-points its links to the
 category its expenses move to, instead of letting `ON DELETE CASCADE` drop them.
 
 Links are applied in two places. In the expense and recurring-template forms the
-category follows the title as the user types, until they pick a category
+category follows the title as the user types (a linked title selects its
+category, a title with no link returns to General), until they pick a category
 themselves; editing never changes a stored category on open, and the server does
 not override the category it is sent. The Splitwise import resolves each row on
 the server: a linked title wins over the CSV category mapping.
+
+## Default category
+
+An expense's (and a recurring template's) `category` is a foreign key to
+`categories.id`, `ON DELETE RESTRICT`: a category in use cannot be deleted, so the
+admin delete route first moves its expenses, templates and title links to another
+category. The API still speaks string ids; `groups.ts` converts at the database
+boundary.
+
+New forms start in the default category: the one titled "General", or the first
+if an admin has renamed it (`defaultCategory` in `src/shared/categories.ts`, used
+by the browser and by `loadCategoryContext` on the server). On every expense and
+recurring route a missing or empty category becomes the default and an unknown id
+is a 400 `bad_category`. Splitwise imports use the default when a row has neither
+a title link nor a mapped CSV category.
 
 ## Recurring expenses
 

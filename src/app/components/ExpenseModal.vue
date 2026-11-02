@@ -10,7 +10,7 @@ import {
 } from "~/utils/format";
 import { useProfiles } from "~/composables/useGroups";
 import { useAutofocus } from "~/composables/useAutofocus";
-import { useTitleCategory } from "~/composables/useTitleCategory";
+import { useFormCategory } from "~/composables/useFormCategory";
 import {
   computeSplits,
   itemsTotals,
@@ -42,8 +42,7 @@ const props = defineProps<{
 }>();
 const emit = defineEmits<{ close: []; saved: []; error: [msg: string] }>();
 
-const { categories, load: loadCategories, iconOf: categoryIcon } = useCategories();
-onMounted(loadCategories);
+const { categories, iconOf: categoryIcon } = useCategories();
 
 const { nameOf } = useProfiles();
 
@@ -53,8 +52,8 @@ const amount = ref("");
 const currency = ref(props.group.baseCurrency);
 const exchangeRate = ref(1);
 const paidBy = ref(props.me.id);
-const category = ref("general");
-const { onTitleInput, markCategoryTouched } = useTitleCategory(category);
+const category = ref("");
+const { onTitleInput, markCategoryTouched } = useFormCategory(category);
 const titleInput = ref<HTMLInputElement | null>(null);
 useAutofocus(titleInput);
 const date = ref(todayStr());

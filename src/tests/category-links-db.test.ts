@@ -149,3 +149,24 @@ describe("deleting a category keeps its links", () => {
     expect(four?.categoryId).toBe(y);
   });
 });
+
+describe("category context for expense input (database)", () => {
+  it("defaults to the General category and lists every real id", async () => {
+    const ctx = await cats.loadCategoryContext();
+    const general = await client.runtimeDb.$client.execute(
+      "SELECT id FROM categories WHERE title = 'General'",
+    );
+    expect(ctx.defaultId).toBe(String(general.rows[0]?.id));
+    const all = await client.runtimeDb.$client.execute("SELECT id FROM categories");
+    expect([...ctx.validIds].sort()).toEqual(all.rows.map((r) => String(r.id)).sort());
+    expect(ctx.validIds.has(ctx.defaultId)).toBe(true);
+    expect(ctx.validIds.has("general")).toBe(false);
+  });
+
+  it("falls back to the first category when General is renamed", async () => {
+    const db = client.runtimeDb.$client;
+    await db.execute("UPDATE categories SET title = 'Renamed' WHERE title = 'General'");
+    const first = await db.execute("SELECT id FROM categories ORDER BY position, id LIMIT 1");
+    expect((await cats.loadCategoryContext()).defaultId).toBe(String(first.rows[0]?.id));
+  });
+});

@@ -33,17 +33,20 @@ export function categoryForTitle(index: TitleLinkIndex, title: string): number |
 /**
  * The category a form should show after the user edits the title.
  *
- * A choice the user made by hand always wins (`touched`), and a title without
- * a link leaves the current category alone — a link only ever sets a
- * category, it never reverts one.
+ * A choice the user made by hand always wins (`touched`). Otherwise a linked
+ * title selects its category, and a title with no link falls back to the
+ * default category (General), so the category follows the title in both
+ * directions. Without a known default the current category is kept.
  */
 export function categoryAfterTitleEdit(
   current: string,
   touched: boolean,
   linked: number | null,
+  defaultId: number | null,
 ): string {
-  if (touched || linked === null) return current;
-  return String(linked);
+  if (touched) return current;
+  const target = linked ?? defaultId;
+  return target === null ? current : String(target);
 }
 
 /**

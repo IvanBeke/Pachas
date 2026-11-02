@@ -1,7 +1,6 @@
 import { requireUser } from "../../../../utils/auth";
 import {
   importExpenses,
-  listCategoryIds,
   requireMember,
   type ImportRow,
 } from "../../../../utils/groups";
@@ -10,6 +9,7 @@ import { toCents } from "../../../../../shared/money";
 import { analyzeSplitwiseCsv } from "../../../../utils/splitwise";
 import { readImportRequest } from "../../../../utils/import-input";
 import { listCategoryLinks } from "../../../../utils/category-links";
+import { loadCategoryContext } from "../../../../utils/categories";
 import {
   buildTitleLinkIndex,
   resolveImportCategory,
@@ -69,7 +69,7 @@ export default defineEventHandler(async (event) => {
     }
   }
 
-  const validCategories = new Set(await listCategoryIds());
+  const { validIds: validCategories, defaultId } = await loadCategoryContext();
   for (const c of analysis.categories) {
     const mapped = categoryMapping[c];
     if (!mapped || !validCategories.has(mapped)) {
@@ -103,7 +103,7 @@ export default defineEventHandler(async (event) => {
       amount: r.amount,
       currency: r.currency,
       paidBy: memberMapping[r.paidBy] ?? "",
-      category: resolveImportCategory(titleLinks, r.title, categoryMapping[r.category], "general"),
+      category: resolveImportCategory(titleLinks, r.title, categoryMapping[r.category], defaultId),
       date: r.date,
       splits,
     });

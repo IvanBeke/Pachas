@@ -1,6 +1,7 @@
 import { requireUser } from "../../../../utils/auth";
 import { requireMember, createExpense } from "../../../../utils/groups";
 import { readExpenseInput } from "../../../../utils/expense-input";
+import { loadCategoryContext } from "../../../../utils/categories";
 
 export default defineEventHandler(async (event) => {
   const me = await requireUser(event);
@@ -10,6 +11,7 @@ export default defineEventHandler(async (event) => {
     await readJsonObject(event),
     group.memberIds,
     group.baseCurrency,
+    await loadCategoryContext(),
   );
   return { id: await createExpense(gid, payload, me.id) };
 });

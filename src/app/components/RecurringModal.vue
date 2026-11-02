@@ -11,7 +11,7 @@ import {
 } from "~/utils/format";
 import { useProfiles } from "~/composables/useGroups";
 import { useAutofocus } from "~/composables/useAutofocus";
-import { useTitleCategory } from "~/composables/useTitleCategory";
+import { useFormCategory } from "~/composables/useFormCategory";
 import {
   computeSplits,
   round2,
@@ -35,7 +35,7 @@ const amount = ref(props.initial ? String(props.initial.amount) : "");
 const currency = ref(props.initial?.currency ?? props.group.baseCurrency);
 const exchangeRate = ref(props.initial?.exchangeRate ?? 1);
 const paidBy = ref(props.initial?.paidBy ?? props.me.id);
-const category = ref(props.initial?.category ?? "general");
+const category = ref(props.initial?.category ?? "");
 const startDate = ref(props.initial?.startDate ?? todayStr());
 const endDate = ref(props.initial?.endDate ?? "");
 const showCur = ref(false);
@@ -61,9 +61,8 @@ const splitValues = ref<Record<string, number>>(
     : {},
 );
 
-const { categories, load: loadCategories } = useCategories();
-onMounted(loadCategories);
-const { onTitleInput, markCategoryTouched } = useTitleCategory(category);
+const { categories } = useCategories();
+const { onTitleInput, markCategoryTouched } = useFormCategory(category);
 const titleInput = ref<HTMLInputElement | null>(null);
 useAutofocus(titleInput);
 

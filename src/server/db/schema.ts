@@ -126,7 +126,9 @@ export const expenses = sqliteTable(
     paidBy: text("paid_by")
       .notNull()
       .references(() => users.id),
-    category: text("category").notNull().default("general"),
+    category: integer("category")
+      .notNull()
+      .references(() => categories.id, { onDelete: "restrict" }),
     date: text("date").notNull(),
     splitType: text("split_type").notNull(),
     createdBy: text("created_by")
@@ -233,7 +235,9 @@ export const recurringExpenses = sqliteTable(
     paidBy: text("paid_by")
       .notNull()
       .references(() => users.id),
-    category: text("category").notNull().default("general"),
+    category: integer("category")
+      .notNull()
+      .references(() => categories.id, { onDelete: "restrict" }),
     splitType: text("split_type").notNull(),
     splits: text("splits", { mode: "json" }).$type<Record<string, number>>().notNull(),
     recurrence: text("recurrence").notNull(),

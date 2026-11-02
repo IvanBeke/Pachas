@@ -60,6 +60,7 @@ async function api(cookie: string, method: string, path: string, body?: unknown)
 type ExpenseRow = {
   id: string;
   title: string;
+  category: string;
   amountBase: number;
   splits: Record<string, number>;
 };
@@ -113,6 +114,32 @@ describe.skipIf(!reachable)("server-authoritative split computation", () => {
 
   const byTitle = async (title: string) =>
     (await listExpenses()).find((e) => e.title === title);
+
+  it("stores the General category when none is sent, and rejects an unknown one", async () => {
+    const cats = (await api(cookie, "GET", "/api/categories")).json as unknown as {
+      id: number;
+      title: string;
+    }[];
+    const general = String(cats.find((c) => c.title === "General")?.id ?? cats[0]?.id);
+
+    for (const [title, category] of [
+      ["no-category", undefined],
+      ["empty-category", ""],
+    ] as const) {
+      const r = await api(cookie, "POST", `/api/groups/${gid}/expenses`, selection({ title, category }));
+      expect(r.status, title).toBe(200);
+      expect((await byTitle(title))?.category, title).toBe(general);
+    }
+
+    const bogus = await api(
+      cookie,
+      "POST",
+      `/api/groups/${gid}/expenses`,
+      selection({ title: "bogus-category", category: "999999" }),
+    );
+    expect(bogus.status).toBe(400);
+    expect(await byTitle("bogus-category")).toBeUndefined();
+  });
 
   it("computes an equal split from the participant list alone", async () => {
     const r = await api(cookie, "POST", `/api/groups/${gid}/expenses`, selection());

@@ -95,16 +95,21 @@ describe("link input validation", () => {
 
 describe("category after a title edit", () => {
   it("switches to the linked category", () => {
-    expect(categoryAfterTitleEdit("1", false, 3)).toBe("3");
+    expect(categoryAfterTitleEdit("1", false, 3, 1)).toBe("3");
   });
 
   it("never overrides a category the user picked by hand", () => {
-    expect(categoryAfterTitleEdit("7", true, 3)).toBe("7");
+    expect(categoryAfterTitleEdit("7", true, 3, 1)).toBe("7");
+    expect(categoryAfterTitleEdit("7", true, null, 1)).toBe("7");
   });
 
-  it("leaves the category alone when the title has no link (no revert)", () => {
-    expect(categoryAfterTitleEdit("3", false, null)).toBe("3");
-    expect(categoryAfterTitleEdit("general", false, null)).toBe("general");
+  it("falls back to the default category when the title has no link", () => {
+    expect(categoryAfterTitleEdit("3", false, null, 1)).toBe("1");
+    expect(categoryAfterTitleEdit("1", false, null, 1)).toBe("1");
+  });
+
+  it("keeps the current category when there is no link and no known default", () => {
+    expect(categoryAfterTitleEdit("3", false, null, null)).toBe("3");
   });
 });
 
@@ -112,15 +117,15 @@ describe("import category resolution", () => {
   const index = buildTitleLinkIndex([{ title: "Gas natural", categoryId: 5 }]);
 
   it("lets a title link override the mapped CSV category", () => {
-    expect(resolveImportCategory(index, "  GAS Natural ", "2", "general")).toBe("5");
+    expect(resolveImportCategory(index, "  GAS Natural ", "2", "1")).toBe("5");
   });
 
   it("uses the mapped CSV category when the title is not linked", () => {
-    expect(resolveImportCategory(index, "Cena", "2", "general")).toBe("2");
+    expect(resolveImportCategory(index, "Cena", "2", "1")).toBe("2");
   });
 
   it("falls back when there is neither a link nor a mapping", () => {
-    expect(resolveImportCategory(index, "Cena", undefined, "general")).toBe("general");
-    expect(resolveImportCategory(index, "Cena", "", "general")).toBe("general");
+    expect(resolveImportCategory(index, "Cena", undefined, "1")).toBe("1");
+    expect(resolveImportCategory(index, "Cena", "", "1")).toBe("1");
   });
 });

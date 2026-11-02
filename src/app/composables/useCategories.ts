@@ -1,4 +1,5 @@
 import type { Category } from "~/utils/format";
+import { defaultCategory } from "../../shared/categories";
 
 let pending: Promise<void> | null = null;
 
@@ -29,8 +30,11 @@ export function useCategories() {
     return pending ?? refresh();
   }
 
+  /** The category a new expense starts in (see `shared/categories.ts`), once loaded. */
+  const defaultId = computed(() => defaultCategory(categories.value)?.id ?? null);
+
   const iconOf = (id: string): string =>
     categories.value.find((c) => String(c.id) === id)?.icon ?? "🧾";
 
-  return { categories, load, refresh, iconOf };
+  return { categories, load, refresh, iconOf, defaultId };
 }

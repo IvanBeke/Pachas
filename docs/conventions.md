@@ -21,6 +21,14 @@ behavior.
 - Keep the server authoritative for settlements and Splitwise imports too.
 - Group base currency is immutable after expenses exist.
 
+## Categories
+
+- An expense or recurring template stores a category **id** (a foreign key, never a
+  name); the server validates it with `readCategory` and falls back to the default
+  (General). See [architecture](./architecture.md#default-category).
+- Pick the default only through `defaultCategory` (`shared/categories.ts`), and
+  delete a category only through `deleteCategoryMigrating`.
+
 ## Title links
 
 - Compare titles only through `normalizeText` and the shared matcher

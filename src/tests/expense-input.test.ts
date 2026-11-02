@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { readExpenseInput } from "../server/utils/expense-input";
 import { computeSplits, sumSplits } from "../shared/splits";
+import type { CategoryContext } from "../server/utils/categories";
 
 const A = "aaaaaaaa-0000-0000-0000-000000000001";
 const B = "bbbbbbbb-0000-0000-0000-000000000002";
 const C = "cccccccc-0000-0000-0000-000000000003";
 const MEMBERS = [A, B];
+const CATS: CategoryContext = { validIds: new Set(["1", "2", "3"]), defaultId: "1" };
 
 /**
  * The client sends a SELECTION — split type, who takes part, and their input
@@ -33,7 +35,7 @@ const err = (fn: () => unknown): string => {
 
 describe("the server computes the splits, it does not accept them", () => {
   it("derives an equal split from the participant list alone", () => {
-    const out = readExpenseInput(body(), MEMBERS, "EUR");
+    const out = readExpenseInput(body(), MEMBERS, "EUR", CATS);
     expect(out.splits).toEqual({ [A]: 5, [B]: 5 });
   });
 
@@ -43,6 +45,7 @@ describe("the server computes the splits, it does not accept them", () => {
       body({ splits: { [A]: 10, [B]: 0 } }),
       MEMBERS,
       "EUR",
+      CATS,
     );
     expect(out.splits).toEqual({ [A]: 5, [B]: 5 });
   });
@@ -52,6 +55,7 @@ describe("the server computes the splits, it does not accept them", () => {
       body({ splits: { [A]: 10, [B]: 0, ghost: -50 } }),
       MEMBERS,
       "EUR",
+      CATS,
     );
     expect(Object.keys(out.splits).sort()).toEqual([A, B].sort());
     expect(sumSplits(out.splits)).toBe(10);
@@ -62,6 +66,7 @@ describe("the server computes the splits, it does not accept them", () => {
       body({ splitType: "exact", participants: [A, B], values: { [A]: 7, [B]: 3 } }),
       MEMBERS,
       "EUR",
+      CATS,
     );
     expect(out.splits).toEqual({ [A]: 7, [B]: 3 });
   });
@@ -76,6 +81,7 @@ describe("the server computes the splits, it does not accept them", () => {
       }),
       MEMBERS,
       "EUR",
+      CATS,
     );
     expect(out.splits).toEqual({ [A]: 70, [B]: 30 });
   });
@@ -85,6 +91,7 @@ describe("the server computes the splits, it does not accept them", () => {
       body({ splitType: "shares", values: { [A]: 1, [B]: 3 } }),
       MEMBERS,
       "EUR",
+      CATS,
     );
     expect(out.splits).toEqual({ [A]: 2.5, [B]: 7.5 });
   });
@@ -105,6 +112,7 @@ describe("the server computes the splits, it does not accept them", () => {
       }),
       MEMBERS,
       "EUR",
+      CATS,
     );
     expect(out.splits).toEqual({ [A]: 10, [B]: 16 });
   });
@@ -122,6 +130,7 @@ describe("the server computes the splits, it does not accept them", () => {
       }),
       MEMBERS,
       "EUR",
+      CATS,
     );
     expect(out.splits[A]).toBe(26);
     expect(out.splits[B]).toBe(0);
@@ -148,6 +157,7 @@ describe("the server computes the splits, it does not accept them", () => {
       }),
       MEMBERS,
       "EUR",
+      CATS,
     );
     expect(stored.splits).toEqual(preview.ok ? preview.splits : {});
   });
@@ -155,23 +165,23 @@ describe("the server computes the splits, it does not accept them", () => {
 
 describe("required fields", () => {
   it("accepts a minimal valid payload", () => {
-    const out = readExpenseInput(body(), MEMBERS, "EUR");
+    const out = readExpenseInput(body(), MEMBERS, "EUR", CATS);
     expect(out.title).toBe("Dinner");
     expect(out.amount).toBe(10);
     expect(out.splitType).toBe("equal");
   });
 
   it("rejects a blank title", () => {
-    expect(err(() => readExpenseInput(body({ title: "   " }), MEMBERS, "EUR"))).toBe(
+    expect(err(() => readExpenseInput(body({ title: "   " }), MEMBERS, "EUR", CATS))).toBe(
       "A title is required.",
     );
   });
 
   it("rejects a zero or negative amount", () => {
-    expect(err(() => readExpenseInput(body({ amount: 0 }), MEMBERS, "EUR"))).toContain(
+    expect(err(() => readExpenseInput(body({ amount: 0 }), MEMBERS, "EUR", CATS))).toContain(
       "greater than zero",
     );
-    expect(err(() => readExpenseInput(body({ amount: -5 }), MEMBERS, "EUR"))).toContain(
+    expect(err(() => readExpenseInput(body({ amount: -5 }), MEMBERS, "EUR", CATS))).toContain(
       "greater than zero",
     );
   });
@@ -179,32 +189,32 @@ describe("required fields", () => {
   it("rejects an amount that converts to less than a cent", () => {
     expect(
       err(() =>
-        readExpenseInput(body({ currency: "JPY", exchangeRate: 0.001, amount: 1 }), MEMBERS, "EUR"),
+        readExpenseInput(body({ currency: "JPY", exchangeRate: 0.001, amount: 1 }), MEMBERS, "EUR", CATS),
       ),
     ).toContain("Invalid converted amount");
   });
 
   it("rejects an unknown split type instead of storing it", () => {
-    expect(err(() => readExpenseInput(body({ splitType: "foo" }), MEMBERS, "EUR"))).toContain(
+    expect(err(() => readExpenseInput(body({ splitType: "foo" }), MEMBERS, "EUR", CATS))).toContain(
       "Unknown split type",
     );
   });
 
   it("rejects a payer who is not a group member", () => {
     expect(
-      err(() => readExpenseInput(body({ paidBy: "not-a-member" }), MEMBERS, "EUR")),
+      err(() => readExpenseInput(body({ paidBy: "not-a-member" }), MEMBERS, "EUR", CATS)),
     ).toContain("Payer must be a group member");
   });
 
   it("rejects an empty participant list", () => {
     expect(
-      err(() => readExpenseInput(body({ participants: [] }), MEMBERS, "EUR")),
+      err(() => readExpenseInput(body({ participants: [] }), MEMBERS, "EUR", CATS)),
     ).toBe("At least one participant is required.");
   });
 
   it("rejects a missing participant list", () => {
     expect(
-      err(() => readExpenseInput({ ...body(), participants: undefined }, MEMBERS, "EUR")),
+      err(() => readExpenseInput({ ...body(), participants: undefined }, MEMBERS, "EUR", CATS)),
     ).toBe("At least one participant is required.");
   });
 
@@ -212,7 +222,7 @@ describe("required fields", () => {
     // If the only remaining valid participant is none, it must reject.
     expect(
       err(() =>
-        readExpenseInput(body({ participants: ["ghost"] }), MEMBERS, "EUR"),
+        readExpenseInput(body({ participants: ["ghost"] }), MEMBERS, "EUR", CATS),
       ),
     ).toBe("At least one participant is required.");
   });
@@ -226,6 +236,7 @@ describe("split validation happens server-side", () => {
           body({ splitType: "exact", values: { [A]: 5, [B]: 1 } }),
           MEMBERS,
           "EUR",
+          CATS,
         ),
       ),
     ).toBe("Exact amounts must add up to the total.");
@@ -238,6 +249,7 @@ describe("split validation happens server-side", () => {
           body({ splitType: "exact", values: { [A]: 50, [B]: 50 } }),
           MEMBERS,
           "EUR",
+          CATS,
         ),
       ),
     ).toBe("Exact amounts must add up to the total.");
@@ -250,6 +262,7 @@ describe("split validation happens server-side", () => {
           body({ splitType: "percent", values: { [A]: 50, [B]: 20 } }),
           MEMBERS,
           "EUR",
+          CATS,
         ),
       ),
     ).toBe("Percentages must add up to 100.");
@@ -262,6 +275,7 @@ describe("split validation happens server-side", () => {
           body({ splitType: "shares", values: { [A]: 0, [B]: 0 } }),
           MEMBERS,
           "EUR",
+          CATS,
         ),
       ),
     ).toBe("Shares must add up to more than zero.");
@@ -280,6 +294,7 @@ describe("split validation happens server-side", () => {
           }),
           MEMBERS,
           "EUR",
+          CATS,
         ),
       ),
     ).toBe("At least one item is required.");
@@ -298,6 +313,7 @@ describe("split validation happens server-side", () => {
           }),
           MEMBERS,
           "EUR",
+          CATS,
         ),
       ),
     ).toBe("Invalid items payload.");
@@ -308,6 +324,7 @@ describe("split validation happens server-side", () => {
       body({ splitType: "shares", values: { [A]: 1, [B]: 1, ghost: 99 } }),
       MEMBERS,
       "EUR",
+      CATS,
     );
     expect(out.splits).toEqual({ [A]: 5, [B]: 5 });
   });
@@ -316,38 +333,53 @@ describe("split validation happens server-side", () => {
 describe("normalisation", () => {
   it("uppercases the currency code and rejects anything that isn't ISO 4217-shaped", () => {
     expect(
-      readExpenseInput(body({ currency: "usd", exchangeRate: 1 }), MEMBERS, "EUR").currency,
+      readExpenseInput(body({ currency: "usd", exchangeRate: 1 }), MEMBERS, "EUR", CATS).currency,
     ).toBe("USD");
-    expect(err(() => readExpenseInput(body({ currency: "dollars" }), MEMBERS, "EUR"))).toContain(
+    expect(err(() => readExpenseInput(body({ currency: "dollars" }), MEMBERS, "EUR", CATS))).toContain(
       "Currency",
     );
   });
 
   it("falls back to the group currency when none is given", () => {
-    expect(readExpenseInput(body(), MEMBERS, "GBP").currency).toBe("GBP");
+    expect(readExpenseInput(body(), MEMBERS, "GBP", CATS).currency).toBe("GBP");
   });
 
   it("defaults a missing exchange rate to 1", () => {
-    expect(readExpenseInput(body({ exchangeRate: "junk" }), MEMBERS, "EUR").exchangeRate).toBe(1);
+    expect(readExpenseInput(body({ exchangeRate: "junk" }), MEMBERS, "EUR", CATS).exchangeRate).toBe(1);
   });
 
   it("substitutes today for a malformed date", () => {
-    const out = readExpenseInput(body({ date: "not-a-date" }), MEMBERS, "EUR");
+    const out = readExpenseInput(body({ date: "not-a-date" }), MEMBERS, "EUR", CATS);
     expect(out.date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 
   it("truncates a long title to 80 characters", () => {
-    expect(readExpenseInput(body({ title: "x".repeat(200) }), MEMBERS, "EUR").title).toHaveLength(80);
+    expect(readExpenseInput(body({ title: "x".repeat(200) }), MEMBERS, "EUR", CATS).title).toHaveLength(80);
   });
 
   it("truncates a plain description to 500 characters", () => {
     expect(
-      readExpenseInput(body({ description: "y".repeat(2000) }), MEMBERS, "EUR").description,
+      readExpenseInput(body({ description: "y".repeat(2000) }), MEMBERS, "EUR", CATS).description,
     ).toHaveLength(500);
   });
 
-  it("defaults the category to general", () => {
-    expect(readExpenseInput(body(), MEMBERS, "EUR").category).toBe("general");
+  it("defaults a missing or empty category to the provided default", () => {
+    for (const category of [undefined, null, "", "   "]) {
+      expect(readExpenseInput(body({ category }), MEMBERS, "EUR", CATS).category).toBe("1");
+    }
+  });
+
+  it("keeps a known category, whether sent as a string or a number", () => {
+    expect(readExpenseInput(body({ category: "2" }), MEMBERS, "EUR", CATS).category).toBe("2");
+    expect(readExpenseInput(body({ category: 3 }), MEMBERS, "EUR", CATS).category).toBe("3");
+  });
+
+  it("rejects a category that does not exist", () => {
+    for (const category of ["99", "abc", "general", "1; DROP TABLE", 0, -1]) {
+      expect(err(() => readExpenseInput(body({ category }), MEMBERS, "EUR", CATS))).toBe(
+        "bad_category",
+      );
+    }
   });
 
   it("always produces splits summing to amountBase", () => {
@@ -357,7 +389,7 @@ describe("normalisation", () => {
         : type === "percent" ? { [A]: 40, [B]: 60 }
         : type === "shares" ? { [A]: 1, [B]: 3 }
         : {};
-      const out = readExpenseInput(body({ splitType: type, values }), MEMBERS, "EUR");
+      const out = readExpenseInput(body({ splitType: type, values }), MEMBERS, "EUR", CATS);
       expect(
         Math.abs(sumSplits(out.splits) - out.amountBase),
         `${type} did not reconcile`,

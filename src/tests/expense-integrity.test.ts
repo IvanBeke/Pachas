@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { readExpenseInput } from "../server/utils/expense-input";
+import type { CategoryContext } from "../server/utils/categories";
 
 /**
  * The ledger's core invariant is that stored shares reconcile to the expense
@@ -13,6 +14,7 @@ import { readExpenseInput } from "../server/utils/expense-input";
  * These tests pin the fix from both sides: the input is rejected, and the
  * reconciliation guard itself refuses to be fooled.
  */
+const CATS: CategoryContext = { validIds: new Set(["1"]), defaultId: "1" };
 const MEMBERS = ["11111111-1111-1111-1111-111111111111", "22222222-2222-2222-2222-222222222222"];
 
 function base(over: Record<string, unknown> = {}) {
@@ -30,7 +32,7 @@ function base(over: Record<string, unknown> = {}) {
 
 function rejects(over: Record<string, unknown>): boolean {
   try {
-    readExpenseInput(base(over) as never, MEMBERS, "EUR");
+    readExpenseInput(base(over) as never, MEMBERS, "EUR", CATS);
     return false;
   } catch {
     return true;
@@ -46,7 +48,7 @@ describe("readExpenseInput rejects non-finite amounts", () => {
   it("ignores a client amountBase and derives it from amount × rate", () => {
     // The client used to control both independently; now only `amount` and
     // the rate are read, so a poisoned `amountBase` cannot reach the ledger.
-    const out = readExpenseInput(base({ amount: 10, amountBase: "1e400" }) as never, MEMBERS, "EUR");
+    const out = readExpenseInput(base({ amount: 10, amountBase: "1e400" }) as never, MEMBERS, "EUR", CATS);
     expect(out.amountBase).toBe(10);
   });
 
@@ -74,6 +76,7 @@ describe("readExpenseInput rejects non-finite amounts", () => {
         base({ exchangeRate }) as never,
         MEMBERS,
         "EUR",
+        CATS,
       );
       expect(out.exchangeRate, `rate ${String(exchangeRate)}`).toBe(1);
       expect(Number.isFinite(out.exchangeRate)).toBe(true);
@@ -85,6 +88,7 @@ describe("readExpenseInput rejects non-finite amounts", () => {
       base({ currency: "USD", exchangeRate: 1.25 }) as never,
       MEMBERS,
       "EUR",
+      CATS,
     );
     expect(out.exchangeRate).toBe(1.25);
     expect(out.amountBase).toBe(12.5);
@@ -102,7 +106,7 @@ describe("readExpenseInput rejects non-finite amounts", () => {
   });
 
   it("still accepts ordinary amounts", () => {
-    const out = readExpenseInput(base({ amount: 30, amountBase: 30 }) as never, MEMBERS, "EUR");
+    const out = readExpenseInput(base({ amount: 30, amountBase: 30 }) as never, MEMBERS, "EUR", CATS);
     expect(out.amount).toBe(30);
     expect(out.splits[MEMBERS[0]]).toBe(15);
   });
@@ -118,6 +122,7 @@ describe("the reconciliation guard cannot be defeated", () => {
         base({ amount, amountBase: amount }) as never,
         MEMBERS,
         "EUR",
+        CATS,
       );
       for (const [uid, share] of Object.entries(out.splits)) {
         expect(Number.isFinite(share), `share for ${uid} at ${amount}`).toBe(true);
