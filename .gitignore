@@ -1,9 +1,3 @@
-node_modules
-.nuxt
-.output
-.data
-dist
-
 .env
 *.local
 

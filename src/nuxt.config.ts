@@ -94,6 +94,14 @@ export default defineNuxtConfig({
           href: "data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🧾</text></svg>",
         },
       ],
+      // Applies the cached theme before first paint so there is no flash of
+      // the wrong palette; the server value is applied once /api/me loads.
+      script: [
+        {
+          innerHTML:
+            "try{var t=localStorage.getItem('pachas-theme');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t}catch(e){}",
+        },
+      ],
     },
   },
 });

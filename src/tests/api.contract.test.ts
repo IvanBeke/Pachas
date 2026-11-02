@@ -548,6 +548,28 @@ describe.skipIf(!reachable)("user profile contract", () => {
     expect(newPasswordLogin.me.id).toBe(session.me.id);
     expect(newPasswordLogin.me.locale).toBe("en");
   });
+
+  it("stores the theme on the account and never exposes it to other users", async () => {
+    const session = await register(`__tt${RUN}`, "theme-pass-123");
+    const other = await register(`__tu${RUN}`, "theme-pass-123");
+    expect((await api(session.cookie, "GET", "/api/me")).json.theme).toBe("auto");
+
+    const dark = await api(session.cookie, "PATCH", "/api/me", { theme: "dark" });
+    expect(dark.status).toBe(200);
+    expect(dark.json.theme).toBe("dark");
+    expect((await api(session.cookie, "GET", "/api/me")).json.theme).toBe("dark");
+
+    for (const bad of ["blue", "", 1, null]) {
+      const r = await api(session.cookie, "PATCH", "/api/me", { theme: bad });
+      expect(r.status).toBe(400);
+    }
+    expect((await api(session.cookie, "GET", "/api/me")).json.theme).toBe("dark");
+
+    const publicView = await api(other.cookie, "GET", `/api/users/search?q=__tt${RUN}`);
+    expect(publicView.status).toBe(200);
+    expect(JSON.stringify(publicView.json)).toContain(session.me.id);
+    expect(JSON.stringify(publicView.json)).not.toContain("theme");
+  });
 });
 
 describe.skipIf(!reachable)("group role authorisation", () => {

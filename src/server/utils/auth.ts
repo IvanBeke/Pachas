@@ -8,6 +8,7 @@ import {
   sessionDigest as sessionDigestWith,
 } from "./session-token";
 import { cookieSecure } from "./env";
+import { normalizeTheme } from "../../shared/theme";
 
 const SESSION_COOKIE_BASE = "pachas.sid";
 const THIRTY_DAYS_MS = 1000 * 60 * 60 * 24 * 30;
@@ -133,6 +134,7 @@ export function publicUser(row: DbUser) {
 export function selfUser(row: DbUser) {
   return {
     ...publicUser(row),
+    theme: normalizeTheme(row.theme),
     role: (row.role === "admin" ? "admin" : "user") as "admin" | "user",
   };
 }

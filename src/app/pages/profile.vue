@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useAuth } from "~/composables/useAuth";
 import AccountMenu from "~/components/AccountMenu.vue";
+import type { Theme } from "../../shared/theme";
 
 const { t } = useI18n();
 const { user, fetchMe, updateProfile } = useAuth();
@@ -10,6 +11,7 @@ const error = ref<string | null>(null);
 const saved = ref(false);
 const name = ref("");
 const language = ref<"es" | "en">("es");
+const theme = ref<Theme>("auto");
 const currentPassword = ref("");
 const newPassword = ref("");
 const confirmPassword = ref("");
@@ -20,6 +22,7 @@ function profileError(error: unknown): string {
     profile_username_immutable: t("profile.usernameReadOnly"),
     profile_name_invalid: t("profile.nameInvalid"),
     profile_locale_invalid: t("profile.languageInvalid"),
+    profile_theme_invalid: t("profile.themeInvalid"),
     profile_password_fields_required: t("profile.passwordFieldsRequired"),
     profile_password_too_short: t("profile.passwordTooShort"),
     profile_password_too_long: t("profile.passwordTooLong"),
@@ -47,9 +50,10 @@ async function saveProfile() {
     const payload: {
       name: string;
       locale: "es" | "en";
+      theme: Theme;
       currentPassword?: string;
       newPassword?: string;
-    } = { name: name.value, locale: language.value };
+    } = { name: name.value, locale: language.value, theme: theme.value };
     if (newPassword.value) {
       payload.currentPassword = currentPassword.value;
       payload.newPassword = newPassword.value;
@@ -74,6 +78,7 @@ onMounted(async () => {
   }
   name.value = me.name;
   language.value = me.locale;
+  theme.value = me.theme ?? "auto";
   loading.value = false;
 });
 </script>
@@ -130,6 +135,14 @@ onMounted(async () => {
               <select id="profile-language" v-model="language">
                 <option value="es">Español</option>
                 <option value="en">English</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="profile-theme">{{ t("profile.theme") }}</label>
+              <select id="profile-theme" v-model="theme">
+                <option value="auto">{{ t("profile.themeAuto") }}</option>
+                <option value="light">{{ t("profile.themeLight") }}</option>
+                <option value="dark">{{ t("profile.themeDark") }}</option>
               </select>
             </div>
           </section>

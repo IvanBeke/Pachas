@@ -145,6 +145,8 @@ export interface Profile {
   locale: "es" | "en";
   color: string;
   /** Only present on the signed-in user's own profile. */
+  theme?: import("../../shared/theme").Theme;
+  /** Only present on the signed-in user's own profile. */
   role?: "admin" | "user";
 }
 

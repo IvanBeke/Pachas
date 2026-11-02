@@ -36,6 +36,13 @@
       "when": 1791193151629,
       "tag": "0004_nostalgic_microbe",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1793618524306,
+      "tag": "0005_cute_tarantula",
+      "breakpoints": true
     }
   ]
 }

@@ -22,6 +22,7 @@ export const users = sqliteTable(
     username: text("username").notNull().unique(),
     name: text("name").notNull(),
     locale: text("locale").notNull().default("es"),
+    theme: text("theme").notNull().default("auto"),
     passwordHash: text("password_hash").notNull(),
     role: text("role").notNull().default("user"),
     createdAt: integer("created_at").notNull(),

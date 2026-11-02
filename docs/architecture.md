@@ -75,7 +75,7 @@ All routes are under `/api`. Everything except `health`, `config`, `login`,
 `register`, and `logout` requires a session.
 
 - Session: `POST /login`, `POST /logout`, `POST /register`, `GET /me`,
-  `PATCH /me` (name, language, password).
+  `PATCH /me` (name, language, theme, password).
 - Public: `GET /health`, `GET /config` (whether registration is open).
 - Users: `GET /users/search?q=` (3+ characters), `GET /users?ids=` (only users
   who share a group with you; at most 100 ids).

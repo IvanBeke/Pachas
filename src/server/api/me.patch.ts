@@ -11,6 +11,7 @@ import {
   selfUser,
 } from "../utils/auth";
 import { passwordProblem } from "../utils/password";
+import { isTheme } from "../../shared/theme";
 
 export default defineEventHandler(async (event) => {
   const user = await requireUser(event);
@@ -23,7 +24,12 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, message: "profile_username_immutable" });
   }
 
-  const updates: { name?: string; locale?: string; passwordHash?: string } = {};
+  const updates: {
+    name?: string;
+    locale?: string;
+    theme?: string;
+    passwordHash?: string;
+  } = {};
 
   if ("name" in body) {
     if (typeof body.name !== "string") {
@@ -41,6 +47,13 @@ export default defineEventHandler(async (event) => {
       throw createError({ statusCode: 400, message: "profile_locale_invalid" });
     }
     updates.locale = body.locale;
+  }
+
+  if ("theme" in body) {
+    if (!isTheme(body.theme)) {
+      throw createError({ statusCode: 400, message: "profile_theme_invalid" });
+    }
+    updates.theme = body.theme;
   }
 
   const changingPassword =

@@ -1,8 +1,11 @@
 import type { Profile } from "~/utils/format";
+import type { Theme } from "../../shared/theme";
+import { applyTheme } from "~/composables/useTheme";
 
 type ProfileUpdate = {
   name: string;
   locale: Profile["locale"];
+  theme?: Theme;
   currentPassword?: string;
   newPassword?: string;
 };
@@ -14,7 +17,10 @@ export function useAuth() {
 
   async function acceptUser(profile: Profile | null) {
     user.value = profile;
-    if (profile) await setLocale(profile.locale);
+    if (profile) {
+      applyTheme(profile.theme ?? "auto");
+      await setLocale(profile.locale);
+    }
   }
 
   async function fetchMe() {
