@@ -33,6 +33,17 @@ Split maths runs in cents and distributes leftover cents deterministically, so
 shares always sum to the total exactly. A group's base currency is fixed once
 it has expenses because each expense stores a base-currency amount.
 
+## Title → category links
+
+A site admin can link an expense title to a category (admin screen, "Title
+links" tab). A link is global: one normalised title maps to one category, and a
+category can have many titles. Only the normalised title is stored and shown
+(`normalizeText` in `src/shared/text.ts`: lower-case, no accents, single
+spaces) and incoming titles are compared in that form; they must match the
+whole title; the matcher in `src/shared/category-links.ts` is used by both
+the browser and the server. Deleting a category re-points its links to the
+category its expenses move to, instead of letting `ON DELETE CASCADE` drop them.
+
 ## Recurring expenses
 
 A recurring expense is a template (weekly, monthly or yearly, with a start date
@@ -82,6 +93,8 @@ All routes are under `/api`. Everything except `health`, `config`, `login`,
 - Categories: `GET /categories`; site admin: `POST /categories`,
   `PATCH /categories/:id`, `DELETE /categories/:id` (moves expenses and
   recurring templates to another category).
+- Category links: `GET /category-links` (any signed-in user); site admin:
+  `POST /category-links`, `PATCH /category-links/:id`, `DELETE /category-links/:id`.
 - Site admin: `GET /admin/overview` (counts, users, groups).
 - Groups: `GET|POST /groups`; `GET|PATCH|DELETE /groups/:gid`;
   `GET /groups/:gid/summary`.

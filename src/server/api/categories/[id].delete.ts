@@ -1,7 +1,5 @@
-import { eq } from "drizzle-orm";
 import { requireAdmin } from "../../utils/auth";
-import { categories, expenses, recurringExpenses } from "../../db/schema";
-import { writeTransaction } from "../../utils/sqlite-writes";
+import { deleteCategoryMigrating } from "../../utils/categories";
 
 export default defineEventHandler(async (event) => {
   await requireAdmin(event);
@@ -17,28 +15,6 @@ export default defineEventHandler(async (event) => {
       message: "Pick a different category to migrate expenses to.",
     });
   }
-  await writeTransaction(async (tx) => {
-    const [source, target] = await Promise.all([
-      tx.select({ id: categories.id }).from(categories).where(eq(categories.id, id)).limit(1),
-      tx.select({ id: categories.id }).from(categories).where(eq(categories.id, migrateTo)).limit(1),
-    ]);
-    if (!source[0]) {
-      throw createError({ statusCode: 404, message: "Category not found." });
-    }
-    if (!target[0]) {
-      throw createError({ statusCode: 400, message: "Target category not found." });
-    }
-    // Recurring templates move too, so future occurrences don't reference the
-    // deleted category.
-    await tx
-      .update(expenses)
-      .set({ category: String(migrateTo) })
-      .where(eq(expenses.category, String(id)));
-    await tx
-      .update(recurringExpenses)
-      .set({ category: String(migrateTo) })
-      .where(eq(recurringExpenses.category, String(id)));
-    await tx.delete(categories).where(eq(categories.id, id));
-  });
+  await deleteCategoryMigrating(id, migrateTo);
   return { ok: true, migratedTo: migrateTo };
 });

@@ -597,6 +597,30 @@ describe.skipIf(!reachable)("group emoji contract", () => {
   });
 });
 
+describe.skipIf(!reachable)("category title links contract", () => {
+  it("requires a session to read links and a site admin to change them", async () => {
+    expect((await api("", "GET", "/api/category-links")).status).toBe(401);
+
+    const user = await register(`__tl${RUN}`, "links-pass-123");
+    const listed = await api(user.cookie, "GET", "/api/category-links");
+    expect(listed.status).toBe(200);
+    expect(Array.isArray(listed.json)).toBe(true);
+
+    // A signed-in non-admin must not be able to write, whatever the body.
+    expect(
+      (await api(user.cookie, "POST", "/api/category-links", { title: "Mercadona", categoryId: 1 }))
+        .status,
+    ).toBe(403);
+    expect(
+      (await api(user.cookie, "PATCH", "/api/category-links/1", { title: "x" })).status,
+    ).toBe(403);
+    expect((await api(user.cookie, "DELETE", "/api/category-links/1")).status).toBe(403);
+
+    const after = await api(user.cookie, "GET", "/api/category-links");
+    expect(after.json).toEqual(listed.json);
+  });
+});
+
 describe.skipIf(!reachable)("group role authorisation", () => {
   let creatorCookie: string;
   let memberCookie: string;

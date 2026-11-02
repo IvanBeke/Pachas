@@ -50,6 +50,28 @@ export const categoryTranslations = sqliteTable(
   (t) => [primaryKey({ columns: [t.categoryId, t.locale] })],
 );
 
+/**
+ * Admin-managed links from an expense title to a category. Only the normalised
+ * title is stored (see `normalizeText` in `shared/text.ts`: lower-case, no
+ * accents, single spaces), because that is the only form titles are compared
+ * in: "Mercadoná " and "mercadona" are the same link.
+ */
+export const categoryTitleLinks = sqliteTable(
+  "category_title_links",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    normalizedTitle: text("normalized_title").notNull(),
+    categoryId: integer("category_id")
+      .notNull()
+      .references(() => categories.id, { onDelete: "cascade" }),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [
+    uniqueIndex("idx_category_title_links_title").on(t.normalizedTitle),
+    index("idx_category_title_links_category").on(t.categoryId),
+  ],
+);
+
 export const groups = sqliteTable("groups", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),

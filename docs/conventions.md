@@ -21,6 +21,15 @@ behavior.
 - Keep the server authoritative for settlements and Splitwise imports too.
 - Group base currency is immutable after expenses exist.
 
+## Title links
+
+- Compare titles only through `normalizeText` and the shared matcher
+  (`shared/category-links.ts`); never re-implement matching in a component or
+  route. Match whole titles, not substrings.
+- Category links are admin-managed global data: reads need a session, writes
+  need the site admin role. Deleting a category must go through
+  `deleteCategoryMigrating` so its links are moved, not cascaded away.
+
 ## Authorization and sessions
 
 - `src/server/utils/group-permissions.ts` is the group authorization source of
@@ -58,6 +67,9 @@ behavior.
 
 ## Vue and localization
 
+- A page with tabs keeps each tab in its own component (`components/group/`,
+  `components/admin/`). The page owns the tab switch, auth and the toast; tabs
+  load their own data and report failures with an `error` event.
 - Keep modal form state local so polling does not erase in-progress input.
 - Group polling updates list data, not modal forms or a global page rerender.
 - Derive per-row display values in `computed`s, not template expressions.
