@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   computeSplits,
+  hasSplitPreview,
+  previewSplits,
   splitsToInputValues,
   sumSplits,
   type SplitInput,
@@ -258,6 +260,79 @@ describe("items with a converted total", () => {
       }),
     );
     expect(r.ok && r.splits).toEqual({ a: 6, b: 18 });
+  });
+});
+
+describe("previewSplits", () => {
+  const input = (over: Record<string, unknown> = {}) => ({
+    splitType: "equal" as const,
+    amount: 10,
+    participants: [A, B, C],
+    memberIds: [A, B, C],
+    values: {},
+    ...over,
+  });
+  const sum = (r: Record<string, number>) => toMills(Object.values(r).reduce((x, y) => x + y, 0));
+
+  it("equal: shows the split that will really be stored", () => {
+    const r = previewSplits(input());
+    expect(r).toEqual({ a: 3.334, b: 3.333, c: 3.333 });
+    expect(sum(r)).toBe(toMills(10));
+  });
+
+  it("equal: only checked people get an amount", () => {
+    expect(previewSplits(input({ participants: [A, B] }))).toEqual({ a: 5, b: 5 });
+    expect(previewSplits(input({ participants: [] }))).toEqual({});
+  });
+
+  it("percent: equals the real split when the percentages are complete", () => {
+    const values = { a: 50, b: 30, c: 20 };
+    const r = previewSplits(input({ splitType: "percent", values }));
+    expect(r).toEqual({ a: 5, b: 3, c: 2 });
+    const real = computeSplits(base({ splitType: "percent", amountBase: 10, values, participants: [A, B, C], memberIds: [A, B, C] }));
+    expect(real.ok && real.splits).toEqual(r);
+  });
+
+  it("percent: while incomplete, shows what was typed without rescaling it", () => {
+    expect(previewSplits(input({ splitType: "percent", participants: [A, B], values: { a: 50, b: 30 } }))).toEqual({
+      a: 5,
+      b: 3,
+    });
+    expect(previewSplits(input({ splitType: "percent", participants: [A, B], values: { a: 50, b: 0 } }))).toEqual({
+      a: 5,
+      b: 0,
+    });
+  });
+
+  it("shares: splits in proportion and sums exactly", () => {
+    const r = previewSplits(input({ splitType: "shares", participants: [A, B], values: { a: 1, b: 2 } }));
+    expect(r).toEqual({ a: 3.333, b: 6.667 });
+    expect(sum(r)).toBe(toMills(10));
+    const odd = previewSplits(input({ splitType: "shares", values: { a: 1, b: 1, c: 1 } }));
+    expect(odd).toEqual({ a: 3.334, b: 3.333, c: 3.333 });
+  });
+
+  it("shares: zero while no weight is positive", () => {
+    expect(previewSplits(input({ splitType: "shares", values: { a: 0, b: 0, c: 0 } }))).toEqual({
+      a: 0,
+      b: 0,
+      c: 0,
+    });
+  });
+
+  it("handles an empty, zero or unusable amount without breaking", () => {
+    for (const amount of [0, Number.NaN]) {
+      for (const splitType of ["equal", "percent", "shares"] as const) {
+        const r = previewSplits(input({ splitType, amount, values: { a: 50, b: 25, c: 25 } }));
+        for (const v of Object.values(r)) expect(Number.isFinite(v)).toBe(true);
+      }
+    }
+  });
+
+  it("only equal, percent and shares have a preview", () => {
+    expect(["equal", "percent", "shares"].every((t) => hasSplitPreview(t as never))).toBe(true);
+    expect(hasSplitPreview("exact")).toBe(false);
+    expect(hasSplitPreview("items")).toBe(false);
   });
 });
 

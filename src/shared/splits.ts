@@ -11,7 +11,7 @@
  * item prices) are cents and only serve as weights. Inputs and outputs stay in
  * decimal units because that is what the API and the forms speak.
  */
-import { allocateMinor, fromCents, fromMills, round2, toCents, toMills } from "./money";
+import { allocateMinor, fromCents, fromMills, round2, round3, toCents, toMills } from "./money";
 
 export { round2, round3 } from "./money";
 
@@ -184,6 +184,43 @@ export function computeSplits(input: SplitInput): SplitResult {
     return { ok: false, reason: "no_shares" };
   }
   return { ok: true, splits: zipMills(participants, allocateMinor(totalMills, shares)) };
+}
+
+export type PreviewSplitType = "equal" | "percent" | "shares";
+
+export function hasSplitPreview(splitType: SplitType): splitType is PreviewSplitType {
+  return splitType === "equal" || splitType === "percent" || splitType === "shares";
+}
+
+/**
+ * What each checked participant gets, for the live preview next to the split
+ * inputs. `amount` is in the expense currency.
+ *
+ * When the inputs are valid this is exactly `computeSplits`, so the preview shows
+ * the amounts that will really be stored (spare thousandths included). While they
+ * are incomplete — percentages that do not total 100, shares that are all zero —
+ * it falls back to what was typed so far, unscaled, so the preview still moves
+ * as the user types; the form's "remaining" message says what is wrong.
+ */
+export function previewSplits(input: {
+  splitType: PreviewSplitType;
+  amount: number;
+  participants: string[];
+  memberIds: string[];
+  values: Record<string, number>;
+}): Record<string, number> {
+  const { splitType, amount, participants, memberIds, values } = input;
+  const result = computeSplits({ splitType, amount, amountBase: amount, participants, memberIds, values });
+  if (result.ok) return result.splits;
+  const out: Record<string, number> = {};
+  for (const id of participants) {
+    const typed = values[id] ?? 0;
+    out[id] =
+      splitType === "percent" && Number.isFinite(amount) && Number.isFinite(typed) && typed > 0
+        ? round3((amount * typed) / 100)
+        : 0;
+  }
+  return out;
 }
 
 /**

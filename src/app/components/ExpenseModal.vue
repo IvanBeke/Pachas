@@ -10,6 +10,7 @@ import {
 } from "~/utils/format";
 import { useProfiles } from "~/composables/useGroups";
 import { useAutofocus } from "~/composables/useAutofocus";
+import { useSplitPreview } from "~/composables/useSplitPreview";
 import { useFormCategory } from "~/composables/useFormCategory";
 import {
   computeSplits,
@@ -130,11 +131,15 @@ function splitVal(id: string): number {
   return splitValues.value[id] ?? 0;
 }
 
-function equalShare(id: string): string {
-  if (!isChecked(id)) return "—";
-  const n = participants.value.length || 1;
-  return fmt(amountNum.value / n, currency.value);
-}
+const { showPreview, previewText } = useSplitPreview({
+  splitType,
+  amount: amountNum,
+  currency,
+  participants,
+  memberIds,
+  splitValues,
+  defaultValue: splitDefault,
+});
 
 /** Sum of the typed split values for checked participants. */
 const valueSum = computed(() => {
@@ -443,11 +448,11 @@ const splitTypes = [
                 @change="toggleParticipant(id)"
               />
               <span class="nm">{{ nameOf(id, me) }}</span>
-              <span v-if="splitType === 'equal'" class="split-share-value">
-                {{ equalShare(id) }}
+              <span v-if="showPreview" class="split-share-value">
+                {{ previewText(id) }}
               </span>
               <input
-                v-else
+                v-if="splitType !== 'equal'"
                 v-model.number="splitValues[id]"
                 type="number"
                 :step="splitType === 'shares' ? 1 : 0.01"

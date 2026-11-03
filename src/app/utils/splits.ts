@@ -7,6 +7,8 @@
  */
 export {
   computeSplits,
+  hasSplitPreview,
+  previewSplits,
   itemsTotals,
   round2,
   round3,
