@@ -1,6 +1,11 @@
 import type { Ref } from "vue";
 import { fmt } from "~/utils/format";
-import { hasSplitPreview, previewSplits, type SplitType } from "~/utils/splits";
+import {
+  hasSplitPreview,
+  previewSplits,
+  type RoundingRing,
+  type SplitType,
+} from "~/utils/splits";
 
 /**
  * The per-person amount shown beside the split inputs of an expense form.
@@ -16,6 +21,8 @@ export function useSplitPreview(form: {
   participants: Ref<string[]>;
   memberIds: Ref<string[]>;
   splitValues: Ref<Record<string, number>>;
+  /** Whose turn it is to get a leftover cent, as the server will see it. */
+  rounding: Ref<RoundingRing>;
   /** What an input holds before the user has typed in it. */
   defaultValue: (id: string) => number;
 }) {
@@ -35,6 +42,7 @@ export function useSplitPreview(form: {
       participants: form.participants.value,
       memberIds: form.memberIds.value,
       values,
+      rounding: form.rounding.value,
     });
   });
 

@@ -4,9 +4,10 @@ import {
   isSplitType,
   sumSplits,
   type ExpenseItem,
+  type RoundingRing,
   type SplitFailure,
 } from "../../shared/splits";
-import { MAX_AMOUNT, round2, round3, toCents, toMills } from "../../shared/money";
+import { MAX_AMOUNT, round2, toCents } from "../../shared/money";
 import type { ExpensePayload } from "./groups";
 import type { CategoryContext } from "./categories";
 
@@ -134,13 +135,16 @@ function readItems(description: string, memberIds: string[]): ExpenseItem[] {
  *
  * The client sends the SELECTION (which type, who takes part, and their input
  * values) and the amount in the expense currency. Everything derived — the
- * base-currency amount and every share — is computed here.
+ * base-currency amount and every share — is computed here. `rounding` says
+ * whose turn it is to get a leftover cent; the payload carries the cursor the
+ * group should move to.
  */
 export function readExpenseInput(
   b: RawBody,
   memberIds: string[],
   baseCurrency: string,
   categories: CategoryContext,
+  rounding?: RoundingRing,
 ): ExpensePayload {
   if (!b || typeof b !== "object") bad("Invalid request body.");
   const title = String(b.title ?? "").trim().slice(0, 80);
@@ -166,9 +170,9 @@ export function readExpenseInput(
     .slice(0, splitType === "items" ? 20_000 : 500);
 
   const amount = readAmount(b.amount);
-  // The typed amount has cents; the converted one keeps a third decimal.
-  const amountBase = round3(amount * rate);
-  if (toMills(amountBase) <= 0) bad("Invalid converted amount.");
+  // Cents like every stored amount: a converted total is rounded to the cent.
+  const amountBase = round2(amount * rate);
+  if (toCents(amountBase) <= 0) bad("Invalid converted amount.");
   if (amountBase > MAX_AMOUNT) bad("Amount is too large.");
 
   let items: ExpenseItem[] | undefined;
@@ -211,6 +215,7 @@ export function readExpenseInput(
     memberIds: [...memberIds],
     values,
     items,
+    rounding,
   });
   if (!computed.ok) bad(SPLIT_ERRORS[computed.reason]);
   const splits = computed.splits;
@@ -219,7 +224,7 @@ export function readExpenseInput(
   // that protects the ledger, so it verifies rather than assumes.
   if (
     !Object.values(splits).every((v) => Number.isFinite(v)) ||
-    toMills(sumSplits(splits)) !== toMills(amountBase)
+    toCents(sumSplits(splits)) !== toCents(amountBase)
   ) {
     bad("Splits do not add up to the total.");
   }
@@ -236,5 +241,7 @@ export function readExpenseInput(
     date: isDateOnly(b.date) ? b.date : new Date().toISOString().slice(0, 10),
     splitType,
     splits,
+    splitInput: { participants, values },
+    nextCursor: computed.nextCursor,
   };
 }

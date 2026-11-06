@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { dateLabel, fmt, parseItems, type Expense, type Profile } from "~/utils/format";
 import { useProfiles } from "~/composables/useGroups";
-import { round3 } from "~/utils/splits";
+import { round2 } from "~/utils/splits";
 
 const props = defineProps<{
   expenses: Expense[];
@@ -39,7 +39,7 @@ function subtitleOf(e: Expense): string | null {
  */
 const rows = computed(() =>
   props.expenses.map((e, i) => {
-    const net = round3((e.paidBy === props.me.id ? e.amountBase : 0) - (e.splits?.[props.me.id] ?? 0));
+    const net = round2((e.paidBy === props.me.id ? e.amountBase : 0) - (e.splits?.[props.me.id] ?? 0));
     return {
       e,
       showDate: i === 0 || props.expenses[i - 1]?.date !== e.date,

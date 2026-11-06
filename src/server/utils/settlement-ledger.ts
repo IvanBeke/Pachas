@@ -1,8 +1,8 @@
-import { fromMills, toMills } from "../../shared/money";
+import { fromCents, toCents } from "../../shared/money";
 import type { Balance, SuggestedTransfer } from "./groups";
 
-/** Balances are exact mills, so anything under half a mill is only float noise. */
-const MIN_BALANCE = 0.0004;
+/** Balances are exact cents, so anything under half a cent is only float noise. */
+const MIN_BALANCE = 0.004;
 
 export interface ExpenseDebtInput {
   paidBy: string;
@@ -32,22 +32,22 @@ export function buildPairwiseDebts(
   expenses: ExpenseDebtInput[],
   allocations: SettlementAllocationInput[],
 ): PairwiseDebt[] {
-  const signedPairs = new Map<string, { a: string; b: string; mills: number }>();
-  const add = (debtorId: string, creditorId: string, mills: number) => {
-    if (debtorId === creditorId || mills === 0) return;
+  const signedPairs = new Map<string, { a: string; b: string; cents: number }>();
+  const add = (debtorId: string, creditorId: string, cents: number) => {
+    if (debtorId === creditorId || cents === 0) return;
     const a = debtorId < creditorId ? debtorId : creditorId;
     const b = debtorId < creditorId ? creditorId : debtorId;
     const direction = debtorId === a ? 1 : -1;
     const key = pairKey(a, b);
-    const row = signedPairs.get(key) ?? { a, b, mills: 0 };
-    row.mills += direction * mills;
+    const row = signedPairs.get(key) ?? { a, b, cents: 0 };
+    row.cents += direction * cents;
     signedPairs.set(key, row);
   };
 
   for (const expense of expenses) {
     for (const [debtorId, amount] of Object.entries(expense.splits)) {
       if (!Number.isFinite(amount)) continue;
-      add(debtorId, expense.paidBy, toMills(amount));
+      add(debtorId, expense.paidBy, toCents(amount));
     }
   }
   for (const allocation of allocations) {
@@ -55,16 +55,16 @@ export function buildPairwiseDebts(
     add(
       allocation.creditorId,
       allocation.debtorId,
-      toMills(allocation.amount),
+      toCents(allocation.amount),
     );
   }
 
   return [...signedPairs.values()]
-    .filter((row) => Math.abs(row.mills) > 0)
+    .filter((row) => Math.abs(row.cents) > 0)
     .map((row) =>
-      row.mills > 0
-        ? { debtorId: row.a, creditorId: row.b, amount: fromMills(row.mills) }
-        : { debtorId: row.b, creditorId: row.a, amount: fromMills(-row.mills) },
+      row.cents > 0
+        ? { debtorId: row.a, creditorId: row.b, amount: fromCents(row.cents) }
+        : { debtorId: row.b, creditorId: row.a, amount: fromCents(-row.cents) },
     )
     .sort(
       (left, right) =>
@@ -74,21 +74,21 @@ export function buildPairwiseDebts(
 }
 
 export function balancesFromPairwiseDebts(debts: PairwiseDebt[]): Balance[] {
-  const millsByMember = new Map<string, number>();
+  const centsByMember = new Map<string, number>();
   for (const debt of debts) {
-    const mills = toMills(debt.amount);
-    millsByMember.set(
+    const cents = toCents(debt.amount);
+    centsByMember.set(
       debt.debtorId,
-      (millsByMember.get(debt.debtorId) ?? 0) - mills,
+      (centsByMember.get(debt.debtorId) ?? 0) - cents,
     );
-    millsByMember.set(
+    centsByMember.set(
       debt.creditorId,
-      (millsByMember.get(debt.creditorId) ?? 0) + mills,
+      (centsByMember.get(debt.creditorId) ?? 0) + cents,
     );
   }
-  return [...millsByMember.entries()]
+  return [...centsByMember.entries()]
     .sort(([left], [right]) => left.localeCompare(right))
-    .map(([memberId, mills]) => ({ memberId, amount: fromMills(mills) }));
+    .map(([memberId, cents]) => ({ memberId, amount: fromCents(cents) }));
 }
 
 export function suggestSimplifiedTransfers(
@@ -105,38 +105,38 @@ export function suggestSimplifiedTransfers(
     const balances = balancesFromPairwiseDebts(remainingDebts);
     const debtors = balances
       .filter((balance) => balance.amount < -MIN_BALANCE)
-      .map((balance) => ({ id: balance.memberId, mills: toMills(-balance.amount) }))
-      .sort((left, right) => right.mills - left.mills || left.id.localeCompare(right.id));
+      .map((balance) => ({ id: balance.memberId, cents: toCents(-balance.amount) }))
+      .sort((left, right) => right.cents - left.cents || left.id.localeCompare(right.id));
     const creditors = balances
       .filter((balance) => balance.amount > MIN_BALANCE)
-      .map((balance) => ({ id: balance.memberId, mills: toMills(balance.amount) }))
-      .sort((left, right) => right.mills - left.mills || left.id.localeCompare(right.id));
+      .map((balance) => ({ id: balance.memberId, cents: toCents(balance.amount) }))
+      .sort((left, right) => right.cents - left.cents || left.id.localeCompare(right.id));
     if (!debtors.length || !creditors.length) break;
 
     let applied = false;
     for (const debtor of debtors) {
       for (const creditor of creditors) {
-        const requestedMills = Math.min(debtor.mills, creditor.mills);
-        let mills = requestedMills;
+        const requestedCents = Math.min(debtor.cents, creditor.cents);
+        let cents = requestedCents;
         let allocation = allocatePayment(
           remainingDebts,
           debtor.id,
           creditor.id,
-          fromMills(mills),
+          fromCents(cents),
         );
-        if (!allocation && requestedMills > 1) {
+        if (!allocation && requestedCents > 1) {
           let low = 1;
-          let high = requestedMills - 1;
+          let high = requestedCents - 1;
           while (low <= high) {
             const middle = Math.floor((low + high) / 2);
             const candidate = allocatePayment(
               remainingDebts,
               debtor.id,
               creditor.id,
-              fromMills(middle),
+              fromCents(middle),
             );
             if (candidate) {
-              mills = middle;
+              cents = middle;
               allocation = candidate;
               low = middle + 1;
             } else {
@@ -149,7 +149,7 @@ export function suggestSimplifiedTransfers(
         transfers.push({
           from: debtor.id,
           to: creditor.id,
-          amount: fromMills(mills),
+          amount: fromCents(cents),
         });
         applied = true;
         break;
@@ -178,7 +178,7 @@ export function allocatePayment(
   to: string,
   amount: number,
 ): { debts: PairwiseDebt[]; allocations: SettlementAllocation[] } | null {
-  const requested = toMills(amount);
+  const requested = toCents(amount);
   if (from === to || requested <= 0) return null;
 
   interface ResidualEdge {
@@ -200,7 +200,7 @@ export function allocatePayment(
   };
 
   for (const debt of debts) {
-    const capacity = toMills(debt.amount);
+    const capacity = toCents(debt.amount);
     if (capacity <= 0) continue;
     const fromEdges = edgesFor(debt.debtorId);
     const toEdges = edgesFor(debt.creditorId);
@@ -276,7 +276,7 @@ export function allocatePayment(
     .map((edge) => ({
       debtorId: edge.debtorId,
       creditorId: edge.creditorId,
-      amount: fromMills(edge.capacity - edge.forward.capacity),
+      amount: fromCents(edge.capacity - edge.forward.capacity),
     }))
     .filter((edge) => edge.amount > 0)
     .sort(
@@ -288,14 +288,14 @@ export function allocatePayment(
   const allocationsByPair = new Map(
     allocations.map((allocation) => [
       `${allocation.debtorId}\0${allocation.creditorId}`,
-      toMills(allocation.amount),
+      toCents(allocation.amount),
     ]),
   );
   const nextDebts = debts.flatMap((debt) => {
-    const mills = toMills(debt.amount) -
+    const cents = toCents(debt.amount) -
       (allocationsByPair.get(`${debt.debtorId}\0${debt.creditorId}`) ?? 0);
-    return mills > 0
-      ? [{ ...debt, amount: fromMills(mills) }]
+    return cents > 0
+      ? [{ ...debt, amount: fromCents(cents) }]
       : [];
   });
   return { debts: nextDebts, allocations };

@@ -5,15 +5,22 @@
  * the user made, and never trusts a client-supplied amount. The client runs
  * this same code purely to render a live preview.
  *
- * All arithmetic happens in integers (see `money.ts`), so every successful
- * result sums to the total exactly — there is no tolerance to tune. The base
- * total is split in mills (3 decimals); the values people type (exact amounts,
- * item prices) are cents and only serve as weights. Inputs and outputs stay in
+ * All arithmetic happens in integer cents (see `money.ts`), so every successful
+ * result sums to the total exactly — there is no tolerance to tune. Leftover
+ * cents go to the largest remainders and ties are handed out round-robin. The
+ * values people type (exact amounts, item prices) only serve as weights. Inputs and outputs stay in
  * decimal units because that is what the API and the forms speak.
  */
-import { allocateMinor, fromCents, fromMills, round2, round3, toCents, toMills } from "./money";
+import {
+  allocateCents,
+  allocateRoundRobin,
+  fromCents,
+  round2,
+  toCents,
+  type RoundingRing,
+} from "./money";
 
-export { round2, round3 } from "./money";
+export { round2, type RoundingRing } from "./money";
 
 export const SPLIT_TYPES = ["equal", "exact", "percent", "shares", "items"] as const;
 export type SplitType = (typeof SPLIT_TYPES)[number];
@@ -45,6 +52,11 @@ export interface SplitInput {
   values: Record<string, number>;
   /** Itemised bill, used when splitType is "items". */
   items?: ExpenseItem[];
+  /**
+   * Whose turn it is to get a leftover cent. Without it, ties go to the first
+   * participant, which is only fit for tests.
+   */
+  rounding?: RoundingRing;
 }
 
 export type SplitFailure =
@@ -56,24 +68,16 @@ export type SplitFailure =
   | "bad_amount";
 
 export type SplitResult =
-  | { ok: true; splits: Record<string, number> }
+  | { ok: true; splits: Record<string, number>; nextCursor: number }
   | { ok: false; reason: SplitFailure };
 
 /** Percentages are not money, so they get a small tolerance for 33.33 × 3. */
 const PERCENT_TOLERANCE = 0.011;
 
 export const sumSplits = (splits: Record<string, number>): number =>
-  fromMills(
-    Object.values(splits).reduce((a, b) => a + toMills(b ?? 0), 0),
+  fromCents(
+    Object.values(splits).reduce((a, b) => a + toCents(b ?? 0), 0),
   );
-
-function zipMills(ids: string[], mills: number[]): Record<string, number> {
-  const out: Record<string, number> = {};
-  ids.forEach((id, i) => {
-    out[id] = fromMills(mills[i] ?? 0);
-  });
-  return out;
-}
 
 function zipCents(ids: string[], cents: number[]): Record<string, number> {
   const out: Record<string, number> = {};
@@ -94,7 +98,7 @@ function itemsTotalsCents(
       totals.has(id),
     );
     if (!enabled.length || !(it.price > 0)) continue;
-    const parts = allocateMinor(toCents(it.price), enabled.map(() => 1));
+    const parts = allocateCents(toCents(it.price), enabled.map(() => 1));
     enabled.forEach((id, i) => {
       totals.set(id, (totals.get(id) ?? 0) + (parts[i] ?? 0));
     });
@@ -131,7 +135,13 @@ export function computeSplits(input: SplitInput): SplitResult {
   if (!Number.isFinite(amountBase) || !Number.isFinite(amount)) {
     return { ok: false, reason: "bad_amount" };
   }
-  const totalMills = toMills(amountBase);
+  const totalCents = toCents(amountBase);
+  // Every branch hands out a total over some weights; this is the one place
+  // that does it, so the rounding rule cannot differ between split types.
+  const allocate = (ids: string[], weights: number[]): SplitResult => {
+    const { cents, nextCursor } = allocateRoundRobin(totalCents, weights, ids, input.rounding);
+    return { ok: true, splits: zipCents(ids, cents), nextCursor };
+  };
   const weightsOf = (fallback: number) =>
     participants.map((id) => values[id] ?? fallback);
   const weightsValid = (w: number[]) => w.every((v) => Number.isFinite(v) && v >= 0);
@@ -144,16 +154,13 @@ export function computeSplits(input: SplitInput): SplitResult {
     const totals = itemsTotalsCents(items, memberIds);
     const weights = memberIds.map((id) => totals.get(id) ?? 0);
     if (!weights.some((w) => w > 0)) return { ok: false, reason: "bad_items" };
-    return { ok: true, splits: zipMills(memberIds, allocateMinor(totalMills, weights)) };
+    return allocate(memberIds, weights);
   }
 
   if (!participants.length) return { ok: false, reason: "no_participants" };
 
   if (splitType === "equal") {
-    return {
-      ok: true,
-      splits: zipMills(participants, allocateMinor(totalMills, participants.map(() => 1))),
-    };
+    return allocate(participants, participants.map(() => 1));
   }
 
   if (splitType === "exact") {
@@ -165,7 +172,7 @@ export function computeSplits(input: SplitInput): SplitResult {
       return { ok: false, reason: "exact_mismatch" };
     }
     // Typed in the expense currency; proportional allocation converts to base.
-    return { ok: true, splits: zipMills(participants, allocateMinor(totalMills, typedCents)) };
+    return allocate(participants, typedCents);
   }
 
   if (splitType === "percent") {
@@ -175,7 +182,7 @@ export function computeSplits(input: SplitInput): SplitResult {
     if (Math.abs(pctSum - 100) > PERCENT_TOLERANCE) {
       return { ok: false, reason: "percent_mismatch" };
     }
-    return { ok: true, splits: zipMills(participants, allocateMinor(totalMills, pct)) };
+    return allocate(participants, pct);
   }
 
   // shares: each member's weight is a fraction of the total.
@@ -183,7 +190,15 @@ export function computeSplits(input: SplitInput): SplitResult {
   if (!weightsValid(shares) || !(shares.reduce((a, b) => a + b, 0) > 0)) {
     return { ok: false, reason: "no_shares" };
   }
-  return { ok: true, splits: zipMills(participants, allocateMinor(totalMills, shares)) };
+  return allocate(participants, shares);
+}
+
+/**
+ * The round-robin ring for a group: its members in a fixed order, so the
+ * client and the server agree on whose turn the stored `cursor` points to.
+ */
+export function roundingRing(memberIds: string[], cursor: number): RoundingRing {
+  return { order: [...memberIds].sort(), cursor };
 }
 
 export type PreviewSplitType = "equal" | "percent" | "shares";
@@ -197,7 +212,7 @@ export function hasSplitPreview(splitType: SplitType): splitType is PreviewSplit
  * inputs. `amount` is in the expense currency.
  *
  * When the inputs are valid this is exactly `computeSplits`, so the preview shows
- * the amounts that will really be stored (spare thousandths included). While they
+ * the amounts that will really be stored (spare cents included). While they
  * are incomplete — percentages that do not total 100, shares that are all zero —
  * it falls back to what was typed so far, unscaled, so the preview still moves
  * as the user types; the form's "remaining" message says what is wrong.
@@ -208,16 +223,25 @@ export function previewSplits(input: {
   participants: string[];
   memberIds: string[];
   values: Record<string, number>;
+  rounding?: RoundingRing;
 }): Record<string, number> {
-  const { splitType, amount, participants, memberIds, values } = input;
-  const result = computeSplits({ splitType, amount, amountBase: amount, participants, memberIds, values });
+  const { splitType, amount, participants, memberIds, values, rounding } = input;
+  const result = computeSplits({
+    splitType,
+    amount,
+    amountBase: amount,
+    participants,
+    memberIds,
+    values,
+    rounding,
+  });
   if (result.ok) return result.splits;
   const out: Record<string, number> = {};
   for (const id of participants) {
     const typed = values[id] ?? 0;
     out[id] =
       splitType === "percent" && Number.isFinite(amount) && Number.isFinite(typed) && typed > 0
-        ? round3((amount * typed) / 100)
+        ? round2((amount * typed) / 100)
         : 0;
   }
   return out;
@@ -238,13 +262,13 @@ export function splitsToInputValues(
   amount: number = amountBase,
 ): Record<string, number> {
   const ids = Object.keys(splits);
-  const shares = ids.map((id) => toMills(splits[id] ?? 0));
+  const shares = ids.map((id) => toCents(splits[id] ?? 0));
   if (splitType === "percent" && amountBase > 0) {
     // Hundredths of a percent, allocated so the reconstruction totals 100.
-    return zipCents(ids, allocateMinor(10_000, shares));
+    return zipCents(ids, allocateCents(10_000, shares));
   }
-  if (splitType === "exact" && amountBase > 0 && toMills(amount) !== toMills(amountBase)) {
-    return zipCents(ids, allocateMinor(toCents(amount), shares));
+  if (splitType === "exact" && amountBase > 0 && toCents(amount) !== toCents(amountBase)) {
+    return zipCents(ids, allocateCents(toCents(amount), shares));
   }
   const out: Record<string, number> = {};
   ids.forEach((id) => {

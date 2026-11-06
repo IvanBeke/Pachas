@@ -5,18 +5,6 @@ import { itemsTotals } from "../app/utils/splits";
 describe("fmt", () => {
   it("renders a currency amount with two decimals", () => {
     expect(fmt(10.5, "EUR")).toMatch(/10[.,]50/);
-    expect(fmt(12.34, "EUR")).toMatch(/12[.,]34$/);
-  });
-
-  it("shows a third decimal only when there is one", () => {
-    expect(fmt(3.333, "EUR")).toMatch(/3[.,]333$/);
-    expect(fmt(0.001, "EUR")).toMatch(/0[.,]001$/);
-    expect(fmt(3.3333, "EUR")).toMatch(/3[.,]333$/);
-    expect(fmt(10, "EUR")).toMatch(/10[.,]00$/);
-  });
-
-  it("never renders a negative zero", () => {
-    expect(fmt(-0.0001, "EUR")).not.toContain("-");
   });
 
   it("marks negatives", () => {

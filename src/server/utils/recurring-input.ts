@@ -2,6 +2,7 @@ import { createError } from "h3";
 import { isDateOnly, readExpenseInput } from "./expense-input";
 import type { RecurringExpensePayload } from "./groups";
 import type { CategoryContext } from "./categories";
+import type { RoundingRing } from "../../shared/splits";
 
 export const RECURRENCES = ["week", "month", "year"] as const;
 export type Recurrence = (typeof RECURRENCES)[number];
@@ -46,6 +47,7 @@ export function readRecurringInput(
   memberIds: string[],
   baseCurrency: string,
   categories: CategoryContext,
+  rounding?: RoundingRing,
 ): RecurringExpensePayload {
   const recurrence = String(b.recurrence || "") as Recurrence;
   const { startDate, endDate } = readRecurringDates(b.startDate, b.endDate);
@@ -56,7 +58,7 @@ export function readRecurringInput(
     });
   }
   // Same authoritative path as a one-off expense: the server computes splits.
-  const base = readExpenseInput(b, memberIds, baseCurrency, categories);
+  const base = readExpenseInput(b, memberIds, baseCurrency, categories, rounding);
   return {
     title: base.title,
     description: base.description,
@@ -68,6 +70,7 @@ export function readRecurringInput(
     category: base.category,
     splitType: base.splitType,
     splits: base.splits,
+    splitInput: base.splitInput,
     recurrence,
     startDate,
     endDate,

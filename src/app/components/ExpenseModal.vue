@@ -16,7 +16,7 @@ import {
   computeSplits,
   itemsTotals,
   round2,
-  round3,
+  roundingRing,
   splitsToInputValues,
   type SplitType,
 } from "~/utils/splits";
@@ -131,7 +131,12 @@ function splitVal(id: string): number {
   return splitValues.value[id] ?? 0;
 }
 
+const rounding = computed(() =>
+  roundingRing(memberIds.value, props.group.roundingCursor ?? 0),
+);
+
 const { showPreview, previewText } = useSplitPreview({
+  rounding,
   splitType,
   amount: amountNum,
   currency,
@@ -225,7 +230,7 @@ async function submit() {
       ? 1
       : Number(exchangeRate.value) || 1;
   // Preview only; the server derives the base amount itself.
-  const amountBase = round3(amt * rate);
+  const amountBase = round2(amt * rate);
   const values: Record<string, number> = {};
   participants.value.forEach((id) => {
     values[id] = splitValues.value[id] ?? splitDefault(id);

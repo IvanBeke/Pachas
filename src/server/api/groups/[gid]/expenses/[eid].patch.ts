@@ -2,6 +2,7 @@ import { requireUser } from "../../../../utils/auth";
 import { requireMember, updateExpenseIfAllowed } from "../../../../utils/groups";
 import { readExpenseInput } from "../../../../utils/expense-input";
 import { loadCategoryContext } from "../../../../utils/categories";
+import { roundingRing } from "../../../../../shared/splits";
 
 export default defineEventHandler(async (event) => {
   const me = await requireUser(event);
@@ -14,7 +15,14 @@ export default defineEventHandler(async (event) => {
   const ok = await updateExpenseIfAllowed(
     gid,
     eid,
-    (group) => readExpenseInput(body, group.memberIds, group.baseCurrency, categories),
+    (group) =>
+      readExpenseInput(
+        body,
+        group.memberIds,
+        group.baseCurrency,
+        categories,
+        roundingRing(group.memberIds, group.roundingCursor),
+      ),
     me.id,
   );
   if (!ok) throw createError({ statusCode: 404, message: "Expense not found." });

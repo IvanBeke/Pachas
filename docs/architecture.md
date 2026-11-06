@@ -27,16 +27,36 @@ amount, including the base-currency amount. `src/shared/splits.ts` is used for
 previews and server-side calculation, so the two cannot drift. Settlement
 amounts and Splitwise imports are likewise derived or re-parsed on the server.
 
-Money is stored as **integer mills**, thousandths of a unit
-(`src/shared/money.ts`). The API speaks decimal units; `src/server/utils/groups.ts`
-converts at the database boundary. What people type (amounts, item prices, exact
-splits) has **cents**; everything the server derives (the base-currency amount,
-shares, balances, settlements) has the third decimal, so the leftover of an
-uneven split (10 ÷ 3 = 3.334 / 3.333 / 3.333) is a thousandth rather than a
-cent and evens out over time. Split maths distributes leftovers
-deterministically, so shares always sum to the total exactly. The UI shows two
-decimals, or three when there is a non-zero thousandth. A group's base currency
-is fixed once it has expenses because each expense stores a base-currency amount.
+Money is stored as **integer cents** (`src/shared/money.ts`). The API speaks
+decimal units; `src/server/utils/groups.ts` converts at the database boundary.
+Everything has two decimals: what people type (amounts, item prices, exact
+splits) and what the server derives (the base-currency amount, shares, balances,
+settlements). A converted total is rounded to the cent (10 USD × 0.9213 = 9.21 €).
+A group's base currency is fixed once it has expenses because each expense stores
+a base-currency amount.
+
+Shares are whole cents: 10 ÷ 3 = 3.34 / 3.33 / 3.33 and 10.01 ÷ 2 = 5.01 / 5.00.
+Leftover cents go to the largest remainders (so 8.867 rounds up and 8.893 down),
+and remainders that tie (all of an equal split) are awarded **round-robin**. The
+group keeps a cursor (`groups.rounding_cursor`) into its members sorted by id
+(`roundingRing`); the person at the cursor, then the next ones, get the extra
+cent, and the cursor moves past the last tie-break winner, so over time everyone
+gets the same number of extra cents. Shares always sum to the total exactly.
+
+The cursor only moves inside the group write transaction: when an expense is
+created or a recurring occurrence is generated. Editing an expense recomputes
+its shares with the current cursor but does not move it, so re-saving an expense
+recomputes it with the current rule. The client receives `roundingCursor` with the
+group so previews show what the server will store.
+
+History: amounts were stored in mills (thousandths) for a while (migration
+`0008`). Migration `0010` went back to cents: every stored amount was divided by 10
+(rounded half up), and the shares of each expense, the allocations of each
+settlement and the splits of each recurring template were reallocated, with the same
+largest-remainder rule, so they still sum exactly to their rounded total. Exact
+half-cent ties alternate between the lower and higher user id from one expense to
+the next. Groups with recorded settlements were rounded too, so their balances
+can have moved by a few cents and a settled debt can leave a cent-sized residual.
 
 ## Title → category links
 
@@ -80,7 +100,11 @@ generates anything already due. Each template records `generated_through`, and
 generated expenses carry `recurring_id` with a unique `(recurring_id, date)`
 index, so occurrences are created exactly once. Dates are UTC calendar dates;
 monthly/yearly schedules clamp to the end of short months. Editing a template
-affects future occurrences only. An occurrence whose payer or participants are
+affects future occurrences only. A template keeps the split selection
+(`split_input`: participants and typed values), and every occurrence recomputes
+its shares from it with the group's round-robin cursor, so the extra cent
+rotates between occurrences. Templates saved before `split_input` existed keep
+copying their stored split until they are edited. An occurrence whose payer or participants are
 no longer group members is skipped and logged.
 
 ## Group page data flow

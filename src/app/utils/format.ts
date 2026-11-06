@@ -1,4 +1,4 @@
-import { round3 } from "../../shared/money";
+import { round2 } from "../../shared/money";
 
 export const CURRENCIES = [
   "EUR", "USD", "GBP", "JPY", "CHF", "SEK", "NOK", "DKK", "PLN",
@@ -11,18 +11,14 @@ export const SYMBOLS: Record<string, string> = {
   INR: "₹", CNY: "¥", MXN: "$", BRL: "R$", NZD: "NZ$", SGD: "S$", ZAR: "R",
 };
 
-/**
- * Two decimals, or three when the amount has a non-zero thousandth: typed
- * amounts read as usual (€12.34) while balances that carry a rounding
- * remainder show it (€3.333).
- */
+/** Amounts always show two decimals (€12.34). */
 export function fmt(amount: number, currency: string): string {
   const sym = SYMBOLS[currency] || currency + " ";
-  const n = round3(amount);
+  const n = round2(amount);
   const neg = n < 0;
   const s = Math.abs(n).toLocaleString(undefined, {
     minimumFractionDigits: 2,
-    maximumFractionDigits: 3,
+    maximumFractionDigits: 2,
   });
   return (neg ? "-" : "") + sym + s;
 }
@@ -174,4 +170,6 @@ export interface Group {
   createdAt: number;
   /** Increments on every change to the group's data. */
   version?: number;
+  /** Whose turn it is to get the next leftover cent (see `roundingRing`). */
+  roundingCursor?: number;
 }

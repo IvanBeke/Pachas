@@ -16,7 +16,7 @@ import { useFormCategory } from "~/composables/useFormCategory";
 import {
   computeSplits,
   round2,
-  round3,
+  roundingRing,
   splitsToInputValues,
   type SplitType,
 } from "~/utils/splits";
@@ -101,7 +101,12 @@ function setSplitType(s: typeof splitType.value) {
   splitValues.value = next;
 }
 
+const rounding = computed(() =>
+  roundingRing(memberIds.value, props.group.roundingCursor ?? 0),
+);
+
 const { showPreview, previewText } = useSplitPreview({
+  rounding,
   splitType,
   amount: amountNum,
   currency,
@@ -168,7 +173,7 @@ async function submit() {
     currency.value === props.group.baseCurrency
       ? 1
       : Number(exchangeRate.value) || 1;
-  const amountBase = round3(amt * rate);
+  const amountBase = round2(amt * rate);
   // Defaults mirror what the inputs show, so a missing value behaves the same
   // here as it does on screen.
   const values: Record<string, number> = {};

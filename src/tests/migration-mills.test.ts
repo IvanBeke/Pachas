@@ -28,6 +28,18 @@ function migrate(dir: string) {
   });
 }
 
+/** A copy of the migrations that stops before the first entry starting with `prefix`. */
+function journalBefore(prefix: string): string {
+  const dir = join(work, `before-${prefix}`);
+  cpSync(source, dir, { recursive: true });
+  const journalPath = join(dir, "meta/_journal.json");
+  const journal = JSON.parse(readFileSync(journalPath, "utf8"));
+  const idx = journal.entries.findIndex((e: { tag: string }) => e.tag.startsWith(prefix));
+  journal.entries = journal.entries.slice(0, idx);
+  writeFileSync(journalPath, JSON.stringify(journal));
+  return dir;
+}
+
 describe("0008 mills migration", () => {
   it("multiplies every stored amount by 10 and keeps the ledger balanced", () => {
     // 1. Apply every migration before 0008.
@@ -70,8 +82,8 @@ describe("0008 mills migration", () => {
     const balancesBefore = balances(db, 100);
     db.close();
 
-    // 3. Apply 0008.
-    migrate(source);
+    // 3. Apply 0008 (and nothing after it: later migrations move the scale again).
+    migrate(journalBefore("0009"));
 
     const after = new DatabaseSync(dbPath);
     const all = <T>(sql: string) => after.prepare(sql).all() as T[];

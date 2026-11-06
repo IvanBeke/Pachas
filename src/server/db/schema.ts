@@ -1,6 +1,6 @@
 /**
  * Money columns (`amount`, `amount_base`, and the values inside
- * `recurring_expenses.splits`) hold integer mills (thousandths of a unit).
+ * `recurring_expenses.splits`) hold integer cents.
  * `server/utils/groups.ts` converts to and from decimal units at the boundary;
  * nothing else reads them.
  */
@@ -83,6 +83,11 @@ export const groups = sqliteTable("groups", {
   createdAt: integer("created_at").notNull(),
   /** Bumped by every write that touches the group; drives the summary ETag. */
   version: integer("version").notNull().default(0),
+  /**
+   * Ring position (members sorted by id) whose turn it is to get the next
+   * leftover cent of an uneven split. Moved only inside write transactions.
+   */
+  roundingCursor: integer("rounding_cursor").notNull().default(0),
 });
 
 export const groupMembers = sqliteTable(
@@ -241,6 +246,16 @@ export const recurringExpenses = sqliteTable(
       .references(() => categories.id, { onDelete: "restrict" }),
     splitType: text("split_type").notNull(),
     splits: text("splits", { mode: "json" }).$type<Record<string, number>>().notNull(),
+    /**
+     * The split selection (who takes part and their typed values) that
+     * produced `splits`, so each occurrence can be recomputed and rotate the
+     * leftover cent. Null on templates saved before this existed: they keep
+     * copying `splits`.
+     */
+    splitInput: text("split_input", { mode: "json" }).$type<{
+      participants: string[];
+      values: Record<string, number>;
+    }>(),
     recurrence: text("recurrence").notNull(),
     startDate: text("start_date").notNull(),
     endDate: text("end_date"),

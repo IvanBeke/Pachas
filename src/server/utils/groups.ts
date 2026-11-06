@@ -13,7 +13,7 @@ import {
 } from "../db/schema";
 import { publicUser, type DbUser } from "./auth";
 import { GroupRole } from "../../shared/group-roles";
-import { fromMills, toMills } from "../../shared/money";
+import { fromCents, toCents } from "../../shared/money";
 import { canGroupAction, type GroupPermissionAction } from "./group-permissions";
 import {
   lockGroupWithMembers,
@@ -31,8 +31,8 @@ import {
 
 /*
  * Money crosses this module's boundary in decimal units and is stored as
- * integer mills (thousandths). Every DB read goes through `fromMills`, every write
- * through `toMills`; no other server module touches the raw columns.
+ * integer cents. Every DB read goes through `fromCents`, every write
+ * through `toCents`; no other server module touches the raw columns.
  *
  * A category is a foreign key (integer) in the database but a string id in the
  * API, as before: reads go through `String`, writes through `Number`. The ids
@@ -55,6 +55,8 @@ export interface PublicGroup {
   createdBy: string | null;
   createdAt: number;
   version: number;
+  /** Whose turn it is to get the next leftover cent; see `roundingRing`. */
+  roundingCursor: number;
 }
 
 export interface Balance {
@@ -75,15 +77,15 @@ function forbidden(): never {
   throw createError({ statusCode: 403, message: "forbidden" });
 }
 
-function millsMap(splits: Record<string, number>): Record<string, number> {
+function centsMap(splits: Record<string, number>): Record<string, number> {
   const out: Record<string, number> = {};
-  for (const [uid, amount] of Object.entries(splits)) out[uid] = toMills(amount);
+  for (const [uid, amount] of Object.entries(splits)) out[uid] = toCents(amount);
   return out;
 }
 
 function decimalMap(splits: Record<string, number>): Record<string, number> {
   const out: Record<string, number> = {};
-  for (const [uid, mills] of Object.entries(splits)) out[uid] = fromMills(mills);
+  for (const [uid, cents] of Object.entries(splits)) out[uid] = fromCents(cents);
   return out;
 }
 
@@ -143,7 +145,7 @@ async function loadPairwiseLedger(
   const splitsByExpense = new Map<string, Record<string, number>>();
   for (const split of splitRows) {
     const splits = splitsByExpense.get(split.expenseId) ?? {};
-    splits[split.userId] = fromMills(split.amount);
+    splits[split.userId] = fromCents(split.amount);
     splitsByExpense.set(split.expenseId, splits);
   }
   const debts = buildPairwiseDebts(
@@ -151,7 +153,7 @@ async function loadPairwiseLedger(
       paidBy: expense.paidBy,
       splits: splitsByExpense.get(expense.id) ?? {},
     })),
-    allocationRows.map((a) => ({ ...a, amount: fromMills(a.amount) })),
+    allocationRows.map((a) => ({ ...a, amount: fromCents(a.amount) })),
   );
   const balanceMap = new Map(
     balancesFromPairwiseDebts(debts).map((balance) => [balance.memberId, balance.amount]),
@@ -241,6 +243,7 @@ function toPublicGroup(row: GroupRow, members: GroupMember[]): PublicGroup {
     createdBy: row.createdBy,
     createdAt: row.createdAt,
     version: row.version,
+    roundingCursor: row.roundingCursor,
   };
 }
 
@@ -580,6 +583,10 @@ export interface ExpensePayload {
   date: string;
   splitType: string;
   splits: Record<string, number>;
+  /** The selection the splits came from; recurring templates keep it. */
+  splitInput: { participants: string[]; values: Record<string, number> };
+  /** The group's cursor after this expense; only a new expense stores it. */
+  nextCursor: number;
 }
 
 export async function getExpenses(gid: string) {
@@ -601,17 +608,17 @@ export async function getExpenses(gid: string) {
   ]);
   const splitMap: Record<string, Record<string, number>> = {};
   for (const s of splitRows) {
-    (splitMap[s.expenseId] ||= {})[s.userId] = fromMills(s.amount);
+    (splitMap[s.expenseId] ||= {})[s.userId] = fromCents(s.amount);
   }
   return rows.map((e) => ({
     id: e.id,
     groupId: e.groupId,
     title: e.title,
     description: e.description,
-    amount: fromMills(e.amount),
+    amount: fromCents(e.amount),
     currency: e.currency,
     exchangeRate: e.exchangeRate,
-    amountBase: fromMills(e.amountBase),
+    amountBase: fromCents(e.amountBase),
     paidBy: e.paidBy,
     category: String(e.category),
     date: e.date,
@@ -640,10 +647,10 @@ function expenseColumns(payload: ExpensePayload) {
   return {
     title: payload.title,
     description: payload.description,
-    amount: toMills(payload.amount),
+    amount: toCents(payload.amount),
     currency: payload.currency,
     exchangeRate: payload.exchangeRate,
-    amountBase: toMills(payload.amountBase),
+    amountBase: toCents(payload.amountBase),
     paidBy: payload.paidBy,
     category: Number(payload.category),
     date: payload.date,
@@ -659,19 +666,24 @@ async function insertSplits(
   const rows = Object.entries(splits).map(([userId, amount]) => ({
     expenseId,
     userId,
-    amount: toMills(amount),
+    amount: toCents(amount),
   }));
   if (rows.length) await tx.insert(expenseSplits).values(rows);
 }
 
+/**
+ * `readPayload` runs inside the write transaction: the splits depend on the
+ * group's round-robin cursor, which is only reliable under the group lock.
+ */
 export async function createExpense(
   gid: string,
-  payload: ExpensePayload,
+  readPayload: (group: PublicGroup) => ExpensePayload,
   creatorId: string,
 ): Promise<string> {
   const eid = randomUUID();
   await writeTransaction(async (tx) => {
     const { group } = await authorizeWrite(tx, gid, creatorId, "expense.create");
+    const payload = readPayload(group);
     assertParticipantsAreMembers(group.memberIds, payload);
     await tx.insert(expenses).values({
       id: eid,
@@ -681,6 +693,12 @@ export async function createExpense(
       createdAt: Date.now(),
     });
     await insertSplits(tx, eid, payload.splits);
+    if (payload.nextCursor !== group.roundingCursor) {
+      await tx
+        .update(groups)
+        .set({ roundingCursor: payload.nextCursor })
+        .where(eq(groups.id, gid));
+    }
   });
   return eid;
 }
@@ -739,6 +757,7 @@ export async function updateExpenseIfAllowed(
     ) {
       return false;
     }
+    // Recomputed with the current cursor, which an edit never advances.
     const payload = readPayload(group);
     assertParticipantsAreMembers(group.memberIds, payload);
     await tx.update(expenses).set(expenseColumns(payload)).where(eq(expenses.id, eid));
@@ -788,10 +807,10 @@ export async function importExpenses(
           groupId: gid,
           title: row.title,
           description: "",
-          amount: toMills(row.amount),
+          amount: toCents(row.amount),
           currency: row.currency,
           exchangeRate: 1,
-          amountBase: toMills(row.amount),
+          amountBase: toCents(row.amount),
           paidBy: row.paidBy,
           category: Number(row.category),
           date: row.date,
@@ -804,7 +823,7 @@ export async function importExpenses(
         Object.entries(row.splits).map(([userId, amount]) => ({
           expenseId: id,
           userId,
-          amount: toMills(amount),
+          amount: toCents(amount),
         })),
       );
       if (splitRows.length) await tx.insert(expenseSplits).values(splitRows);
@@ -828,7 +847,7 @@ export async function getSettlements(gid: string) {
     groupId: s.groupId,
     from: s.fromUser,
     to: s.toUser,
-    amount: fromMills(s.amount),
+    amount: fromCents(s.amount),
     note: s.note,
     createdBy: s.createdBy,
     createdAt: s.createdAt,
@@ -856,15 +875,15 @@ export async function createSettlement(
     if (!suggested) {
       throw createError({ statusCode: 400, message: "There is no suggested payment between these members." });
     }
-    const amountMills =
-      payload.amount === undefined ? toMills(suggested.amount) : toMills(payload.amount);
-    if (!Number.isFinite(amountMills) || amountMills <= 0) {
+    const amountCents =
+      payload.amount === undefined ? toCents(suggested.amount) : toCents(payload.amount);
+    if (!Number.isFinite(amountCents) || amountCents <= 0) {
       throw createError({ statusCode: 400, message: "Amount must be greater than zero." });
     }
-    if (amountMills > toMills(suggested.amount)) {
+    if (amountCents > toCents(suggested.amount)) {
       throw createError({ statusCode: 400, message: "Amount is more than the outstanding debt." });
     }
-    const amount = fromMills(amountMills);
+    const amount = fromCents(amountCents);
     const allocation = allocatePayment(ledger.debts, payload.from, payload.to, amount);
     if (!allocation) {
       throw createError({ statusCode: 409, message: "settlement_allocation_failed" });
@@ -874,7 +893,7 @@ export async function createSettlement(
       groupId: gid,
       fromUser: payload.from,
       toUser: payload.to,
-      amount: amountMills,
+      amount: amountCents,
       note: payload.note,
       createdBy: actorId,
       createdAt: Date.now(),
@@ -885,7 +904,7 @@ export async function createSettlement(
           settlementId: sid,
           debtorId: entry.debtorId,
           creditorId: entry.creditorId,
-          amount: toMills(entry.amount),
+          amount: toCents(entry.amount),
         })),
       );
     }
@@ -935,6 +954,7 @@ export interface RecurringExpensePayload {
   category: string;
   splitType: string;
   splits: Record<string, number>;
+  splitInput: { participants: string[]; values: Record<string, number> };
   recurrence: string;
   startDate: string;
   endDate: string | null;
@@ -951,10 +971,10 @@ export async function getRecurringExpenses(gid: string) {
     groupId: r.groupId,
     title: r.title,
     description: r.description,
-    amount: fromMills(r.amount),
+    amount: fromCents(r.amount),
     currency: r.currency,
     exchangeRate: r.exchangeRate,
-    amountBase: fromMills(r.amountBase),
+    amountBase: fromCents(r.amountBase),
     paidBy: r.paidBy,
     category: String(r.category),
     splitType: r.splitType,
@@ -972,14 +992,15 @@ function recurringColumns(payload: RecurringExpensePayload) {
   return {
     title: payload.title,
     description: payload.description,
-    amount: toMills(payload.amount),
+    amount: toCents(payload.amount),
     currency: payload.currency,
     exchangeRate: payload.exchangeRate,
-    amountBase: toMills(payload.amountBase),
+    amountBase: toCents(payload.amountBase),
     paidBy: payload.paidBy,
     category: Number(payload.category),
     splitType: payload.splitType,
-    splits: millsMap(payload.splits),
+    splits: centsMap(payload.splits),
+    splitInput: payload.splitInput,
     recurrence: payload.recurrence,
     startDate: payload.startDate,
     endDate: payload.endDate,

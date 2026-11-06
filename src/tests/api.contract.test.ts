@@ -648,8 +648,8 @@ describe.skipIf(!reachable)("category title links contract", () => {
   });
 });
 
-describe.skipIf(!reachable)("amounts keep a third decimal", () => {
-  it("round-trips typed amounts and settles an uneven split down to the thousandth", async () => {
+describe.skipIf(!reachable)("amounts are stored in cents", () => {
+  it("round-trips typed amounts and settles an uneven split down to the cent", async () => {
     const a = await register(`__tma${RUN}`, "mills-pass-123");
     const b = await register(`__tmb${RUN}`, "mills-pass-123");
     const c = await register(`__tmc${RUN}`, "mills-pass-123");
@@ -675,9 +675,10 @@ describe.skipIf(!reachable)("amounts keep a third decimal", () => {
 
     // A typed amount comes back exactly as typed.
     expect((await api(a.cookie, "POST", `/api/groups/${gid}/expenses`, expense("typed", 10.01, { participants: [a.me.id] }))).status).toBe(200);
-    // 10 ÷ 3: the spare thousandth goes to the first participant.
+    // 10 ÷ 3: the spare cent goes to whoever the group's round-robin cursor points to
+    // (first in id order for a new group).
     expect((await api(a.cookie, "POST", `/api/groups/${gid}/expenses`, expense("uneven", 10))).status).toBe(200);
-    // A foreign amount converts to a third decimal: 10.00 USD × 0.9213 = 9.213 EUR.
+    // A foreign amount converts to cents: 10.00 USD × 0.9213 = 9.21 EUR.
     expect(
       (await api(a.cookie, "POST", `/api/groups/${gid}/expenses`, expense("usd", 10, { currency: "USD", exchangeRate: 0.9213, participants: [a.me.id] }))).status,
     ).toBe(200);
@@ -690,12 +691,14 @@ describe.skipIf(!reachable)("amounts keep a third decimal", () => {
     }[];
     const byTitle = (t: string) => list.find((e) => e.title === t)!;
     expect(byTitle("typed")).toMatchObject({ amount: 10.01, amountBase: 10.01 });
+    const first = [a.me.id, b.me.id, c.me.id].sort()[0]!;
+    const share = (id: string) => (id === first ? 3.34 : 3.33);
     expect(byTitle("uneven").splits).toEqual({
-      [a.me.id]: 3.334,
-      [b.me.id]: 3.333,
-      [c.me.id]: 3.333,
+      [a.me.id]: share(a.me.id),
+      [b.me.id]: share(b.me.id),
+      [c.me.id]: share(c.me.id),
     });
-    expect(byTitle("usd")).toMatchObject({ amount: 10, amountBase: 9.213 });
+    expect(byTitle("usd")).toMatchObject({ amount: 10, amountBase: 9.21 });
 
     // B settles exactly what they owe on the uneven split, with no residual left.
     const settled = await api(b.cookie, "POST", `/api/groups/${gid}/settlements`, {
@@ -703,14 +706,14 @@ describe.skipIf(!reachable)("amounts keep a third decimal", () => {
       to: a.me.id,
     });
     expect(settled.status).toBe(200);
-    expect(settled.json.amount).toBe(3.333);
+    expect(settled.json.amount).toBe(share(b.me.id));
     const plan = (await api(a.cookie, "GET", `/api/groups/${gid}/settlements/plan`)).json as unknown as {
       balances: { memberId: string; amount: number }[];
     };
     const balance = (id: string) => plan.balances.find((x) => x.memberId === id)?.amount ?? 0;
     expect(balance(b.me.id)).toBe(0);
-    expect(balance(c.me.id)).toBe(-3.333);
-    expect(balance(a.me.id)).toBe(3.333);
+    expect(balance(c.me.id)).toBe(-share(c.me.id));
+    expect(balance(a.me.id)).toBe(share(c.me.id));
   });
 });
 

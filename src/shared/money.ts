@@ -1,17 +1,9 @@
 /**
- * Money helpers. There are two precisions, and mixing them up is the main way to
- * get this wrong:
- *
- * - **Cents (2 decimals)** are what people type: amounts, item prices and
- *   exact-split values. Use `toCents` / `fromCents` / `round2` to validate and
- *   combine input.
- * - **Mills (3 decimals, thousandths)** are what is stored and computed on the
- *   server: base-currency amounts, shares, balances and settlements. Use
- *   `toMills` / `fromMills` / `round3`. The extra decimal lets the rounding
- *   remainders of equal splits even out over time.
- *
- * The HTTP API and the UI use decimal major units; every conversion goes
- * through here so there is exactly one rounding rule per precision.
+ * Money helpers. Amounts are integer **cents** (2 decimals) everywhere: what people
+ * type, what the database stores, and what the server derives (base-currency
+ * amounts, shares, balances, settlements). The HTTP API and the UI use decimal
+ * major units; every conversion goes through here so there is exactly one rounding
+ * rule.
  */
 
 /** Largest amount (in major units) accepted for a single expense or payment. */
@@ -34,34 +26,96 @@ export function round2(n: number): number {
   return fromCents(toCents(n));
 }
 
-/** Decimal major units to integer mills (thousandths); same float-noise handling as `toCents`. */
-export function toMills(amount: number): number {
-  return Math.round(Number((amount * 1000).toPrecision(15)));
+/**
+ * Who gets the leftover unit when remainders tie. `order` is the fixed ring of
+ * member ids (the same on the client and the server); `cursor` is the ring
+ * position whose turn it is.
+ */
+export interface RoundingRing {
+  order: string[];
+  cursor: number;
 }
 
-export function fromMills(mills: number): number {
-  return mills / 1000;
-}
+/** Remainders closer than this are a tie; it only has to absorb float noise. */
+const REMAINDER_EPSILON = 1e-9;
 
-/** Round to mills in decimal units. */
-export function round3(n: number): number {
-  return fromMills(toMills(n));
+/**
+ * Splits a total in cents across `weights`, handing the leftover cents to the
+ * largest remainders. Remainders that tie (all of an equal split) are awarded
+ * round-robin: the person closest to the ring cursor first. `nextCursor` moves
+ * just past the last person who won a tie, and stays put when no tie decided
+ * anything.
+ *
+ * Parts always sum to the total exactly. `ids` lines up with `weights`.
+ */
+export function allocateRoundRobin(
+  totalCents: number,
+  weights: number[],
+  ids: string[],
+  ring?: RoundingRing,
+): { cents: number[]; nextCursor: number } {
+  const len = ring?.order.length ?? 0;
+  const cursor = len ? ((Math.trunc(ring!.cursor) % len) + len) % len : 0;
+  const out = weights.map(() => 0);
+  const wSum = weights.reduce((a, w) => a + (w > 0 ? w : 0), 0);
+  if (!(wSum > 0) || totalCents === 0) return { cents: out, nextCursor: cursor };
+
+  const sign = totalCents < 0 ? -1 : 1;
+  const total = Math.abs(totalCents);
+
+  const candidates: { i: number; r: number; distance: number }[] = [];
+  let assigned = 0;
+  weights.forEach((w, i) => {
+    if (!(w > 0)) return;
+    const exact = Math.round(((total * w) / wSum) * 1e9) / 1e9;
+    const base = Math.floor(exact);
+    out[i] = base;
+    assigned += base;
+    const pos = len ? ring!.order.indexOf(ids[i] ?? "") : -1;
+    candidates.push({
+      i,
+      r: exact - base,
+      distance: pos >= 0 ? (pos - cursor + len) % len : len + i,
+    });
+  });
+  candidates.sort((a, b) =>
+    Math.abs(a.r - b.r) > REMAINDER_EPSILON
+      ? b.r - a.r
+      : a.distance - b.distance || a.i - b.i,
+  );
+
+  const leftover = total - assigned;
+  for (let k = 0; k < leftover; k++) {
+    const target = candidates[k % candidates.length];
+    if (target) out[target.i] = (out[target.i] ?? 0) + 1;
+  }
+
+  let nextCursor = cursor;
+  const boundary = candidates[leftover];
+  if (len && leftover > 0 && boundary) {
+    const winners = candidates
+      .slice(0, leftover)
+      .filter((c) => Math.abs(c.r - boundary.r) <= REMAINDER_EPSILON);
+    const last = winners[winners.length - 1];
+    if (last && last.distance < len) nextCursor = (cursor + last.distance + 1) % len;
+  }
+  return { cents: out.map((v) => (v === 0 ? 0 : sign * v)), nextCursor };
 }
 
 /**
- * Splits an integer total (cents or mills) across `weights` proportionally, using the largest
+ * Splits an integer total in cents across `weights` proportionally, using the largest
  * remainder method so the parts always sum to the total exactly. Ties are
  * broken by input order, so the result is deterministic.
  */
-export function allocateMinor(
-  totalMinor: number,
+export function allocateCents(
+  totalCents: number,
   weights: number[],
 ): number[] {
   const out = weights.map(() => 0);
   const wSum = weights.reduce((a, w) => a + (w > 0 ? w : 0), 0);
-  if (!(wSum > 0) || totalMinor === 0) return out;
-  const sign = totalMinor < 0 ? -1 : 1;
-  const total = Math.abs(totalMinor);
+  if (!(wSum > 0) || totalCents === 0) return out;
+  const sign = totalCents < 0 ? -1 : 1;
+  const total = Math.abs(totalCents);
   const remainders: { i: number; r: number }[] = [];
   let assigned = 0;
   weights.forEach((w, i) => {

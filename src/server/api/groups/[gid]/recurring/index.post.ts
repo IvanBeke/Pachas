@@ -3,6 +3,7 @@ import { requireMember, createRecurringExpense } from "../../../../utils/groups"
 import { readRecurringInput } from "../../../../utils/recurring-input";
 import { generateRecurringExpenses } from "../../../../utils/recurring";
 import { loadCategoryContext } from "../../../../utils/categories";
+import { roundingRing } from "../../../../../shared/splits";
 
 export default defineEventHandler(async (event) => {
   const me = await requireUser(event);
@@ -13,6 +14,7 @@ export default defineEventHandler(async (event) => {
     group.memberIds,
     group.baseCurrency,
     await loadCategoryContext(),
+    roundingRing(group.memberIds, group.roundingCursor),
   );
   const rid = await createRecurringExpense(gid, payload, me.id);
   // Occurrences already due (start date today or earlier) appear immediately

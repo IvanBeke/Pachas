@@ -5,8 +5,11 @@ import {
   expenseSplits,
   expenses,
   groupMembers,
+  groups,
   recurringExpenses,
 } from "../db/schema";
+import { computeSplits, roundingRing, type ExpenseItem, type SplitType } from "../../shared/splits";
+import { fromCents, toCents } from "../../shared/money";
 import { lockGroup, writeTransaction } from "./sqlite-writes";
 import type { Recurrence } from "./recurring-input";
 import { dueOccurrences, todayUtc } from "./recurring-schedule";
@@ -20,10 +23,30 @@ import { dueOccurrences, todayUtc } from "./recurring-schedule";
  * advances to the last occurrence handled. A unique index on `(recurring_id, date)` makes a
  * double run harmless.
  *
+ * Each occurrence recomputes its split from the template's saved selection and
+ * the group's round-robin cursor, so the leftover cent rotates between
+ * occurrences. Templates saved before the selection was stored keep copying
+ * their `splits` snapshot.
+ *
  * An occurrence whose payer or participants are no longer group members is
  * skipped (and logged) rather than retried forever: balances must only ever
  * reference current members at the time of the write.
  */
+
+function itemsOf(description: string): ExpenseItem[] | undefined {
+  try {
+    const parsed = JSON.parse(description) as { items?: unknown };
+    return Array.isArray(parsed?.items) ? (parsed.items as ExpenseItem[]) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function decimalSnapshot(splits: Record<string, number>): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const [uid, cents] of Object.entries(splits)) out[uid] = fromCents(cents);
+  return out;
+}
 
 async function generateForTemplate(rid: string, today: string): Promise<number> {
   return writeTransaction(async (tx) => {
@@ -48,7 +71,7 @@ async function generateForTemplate(rid: string, today: string): Promise<number> 
       return 0;
     }
 
-    await lockGroup(tx, template.groupId);
+    const groupRow = await lockGroup(tx, template.groupId);
     const members = new Set(
       (
         await tx
@@ -57,6 +80,25 @@ async function generateForTemplate(rid: string, today: string): Promise<number> 
           .where(eq(groupMembers.groupId, template.groupId))
       ).map((m) => m.userId),
     );
+    const memberIds = [...members];
+    let cursor = groupRow.roundingCursor;
+    const splitsFor = (): Record<string, number> => {
+      const input = template.splitInput;
+      if (!input) return decimalSnapshot(template.splits);
+      const computed = computeSplits({
+        splitType: template.splitType as SplitType,
+        amount: fromCents(template.amount),
+        amountBase: fromCents(template.amountBase),
+        participants: input.participants,
+        memberIds,
+        values: input.values,
+        items: template.splitType === "items" ? itemsOf(template.description) : undefined,
+        rounding: roundingRing(memberIds, cursor),
+      });
+      if (!computed.ok) return decimalSnapshot(template.splits);
+      cursor = computed.nextCursor;
+      return computed.splits;
+    };
     const participants = [template.paidBy, ...Object.keys(template.splits)];
     const valid = participants.every((uid) => members.has(uid));
     const last = dates[dates.length - 1]!;
@@ -87,10 +129,10 @@ async function generateForTemplate(rid: string, today: string): Promise<number> 
           .onConflictDoNothing()
           .returning({ id: expenses.id });
         if (!inserted.length) continue;
-        const splitRows = Object.entries(template.splits).map(([userId, amount]) => ({
+        const splitRows = Object.entries(splitsFor()).map(([userId, amount]) => ({
           expenseId: id,
           userId,
-          amount,
+          amount: toCents(amount),
         }));
         if (splitRows.length) await tx.insert(expenseSplits).values(splitRows);
         created++;
@@ -102,6 +144,9 @@ async function generateForTemplate(rid: string, today: string): Promise<number> 
       );
     }
 
+    if (cursor !== groupRow.roundingCursor) {
+      await tx.update(groups).set({ roundingCursor: cursor }).where(eq(groups.id, groupRow.id));
+    }
     await tx
       .update(recurringExpenses)
       .set({ generatedThrough: last })
