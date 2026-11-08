@@ -39,7 +39,7 @@
     "@nuxthub/core": "^0.10.8",
     "drizzle-kit": "^0.31.11",
     "emojibase-data": "^18.0.0",
-    "nuxt": "^4.5.2",
+    "nuxt": "^4.6.3",
     "typescript": "^6.0.3",
     "vitest": "^5.1.0",
     "vue": "^3.5.45",
