@@ -25,16 +25,14 @@ const { group, expenses, settlements, balances, transfers, loading, reload } =
   useGroupDetail(gid);
 const { load: loadCategories } = useCategories();
 
-const tab = ref<"expenses" | "balances" | "activity" | "recurring">("expenses");
+const { tab, isDefault } = useRouteTab(["expenses", "balances", "activity", "recurring"]);
 const tabLabels = computed(() => ({
+  expenses: t("group.expenses"),
   balances: t("group.balances"),
   activity: t("group.activity"),
   recurring: t("group.recurring"),
 }));
-usePageTitle(() => [
-  tab.value === "expenses" ? undefined : tabLabels.value[tab.value],
-  group.value?.name,
-]);
+usePageTitle(() => [isDefault.value ? undefined : tabLabels.value[tab.value], group.value?.name]);
 const showExpense = ref(false);
 const editingExpense = ref<Expense | null>(null);
 const showSettle = ref(false);
@@ -147,6 +145,10 @@ function closeExpense() {
   editingExpense.value = null;
 }
 
+watch(tab, (value) => {
+  if (value === "recurring") void loadRecurring();
+});
+
 onMounted(async () => {
   const me = await fetchMe();
   if (!me) {
@@ -154,6 +156,7 @@ onMounted(async () => {
     return;
   }
   await Promise.all([ensure([me.id]), loadCategories()]);
+  if (tab.value === "recurring") void loadRecurring();
 });
 </script>
 
@@ -224,7 +227,7 @@ onMounted(async () => {
           <button
             class="tab"
             :class="{ active: tab === 'recurring' }"
-            @click="tab = 'recurring'; loadRecurring()"
+            @click="tab = 'recurring'"
           >
             {{ t("group.recurring") }}
           </button>
