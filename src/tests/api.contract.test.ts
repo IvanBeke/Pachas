@@ -925,7 +925,7 @@ describe.skipIf(!reachable)("group role authorisation", () => {
       .toBe(200);
   });
 
-  it("lets members settle only their own debts, while admins can settle for anyone", async () => {
+  it("lets members settle payments they owe or are owed, while admins can settle for anyone", async () => {
     const seed = await api(
       creatorCookie,
       "POST",
@@ -953,11 +953,33 @@ describe.skipIf(!reachable)("group role authorisation", () => {
     });
     expect(adminSettlement.status).toBe(200);
 
-    const forgedDebtor = await api(memberCookie, "POST", `/api/groups/${gid}/settlements`, {
+    // The person owed can record the payment too.
+    const owedToMember = await api(
+      memberCookie,
+      "POST",
+      `/api/groups/${gid}/expenses`,
+      expenseInput("owed-to-member", memberId),
+    );
+    expect(owedToMember.status).toBe(200);
+    const asCreditor = await api(memberCookie, "POST", `/api/groups/${gid}/settlements`, {
       from: creatorId,
       to: memberId,
     });
-    expect(forgedDebtor.status).toBe(403);
+    expect(asCreditor.status, JSON.stringify(asCreditor.json)).toBe(200);
+
+    // A payment between two other people is not theirs to record.
+    const otherDebt = await api(
+      creatorCookie,
+      "POST",
+      `/api/groups/${gid}/expenses`,
+      expenseInput("between-others", creatorId, [creatorId, adminId]),
+    );
+    expect(otherDebt.status).toBe(200);
+    const forgedPair = await api(memberCookie, "POST", `/api/groups/${gid}/settlements`, {
+      from: adminId,
+      to: creatorId,
+    });
+    expect(forgedPair.status).toBe(403);
   });
 
   it("applies the same ownership rules to recurring expenses", async () => {

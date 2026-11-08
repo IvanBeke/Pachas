@@ -111,7 +111,7 @@
     "isOwed": "le deben",
     "suggestedSettlements": "Pagos sugeridos",
     "everyoneSettled": "Todos están saldados.",
-    "noDebtsToSettle": "No tienes deudas pendientes.",
+    "noDebtsToSettle": "No tienes pagos pendientes.",
     "noActivity": "Aún no hay actividad",
     "added": "añadió",
     "paidBy": "pagado por",
@@ -130,6 +130,7 @@
     "cancelRemove": "Cancelar",
     "couldntRemove": "No se pudo eliminar al miembro.",
     "settleSuggestion": "{from} debe {amount} a {to}",
+    "settlementMessage": "{from} pagó {amount} a {to}",
     "markPaid": "Marcar como pagado",
     "cancel": "Cancelar"
   },
@@ -236,18 +237,11 @@
   },
   "settleModal": {
     "title": "Saldar cuentas",
-    "from": "De",
-    "to": "Para",
-    "amount": "Importe ({currency})",
+    "pick": "¿Qué pago vas a saldar?",
     "note": "Nota (opcional)",
     "notePlaceholder": "Efectivo, transferencia…",
     "record": "Registrar pago",
-    "errorDifferent": "Elige dos personas distintas.",
-    "errorAmount": "Introduce un importe.",
-    "couldntRecord": "No se pudo registrar el pago.",
-    "noDebt": "Nada pendiente",
-    "errorNoDebt": "No hay deuda pendiente entre estas dos personas.",
-    "amountNote": "Este es el importe pendiente total. Lo calcula el servidor y no se puede editar."
+    "couldntRecord": "No se pudo registrar el pago."
   },
   "addMemberModal": {
     "title": "Añadir a {name}",

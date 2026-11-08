@@ -55,9 +55,9 @@ behavior.
 
 | Action | Creator | Group admin | Member |
 |---|---|---|---|
-| Add expenses, recurring expenses, settlements they owe | ✓ | ✓ | ✓ |
+| Add expenses, recurring expenses, settlements they owe or are owed | ✓ | ✓ | ✓ |
 | Edit or delete any expense / recurring expense | ✓ | ✓ | own only |
-| Record a settlement for someone else | ✓ | ✓ | — |
+| Record a settlement between two other people | ✓ | ✓ | — |
 | Delete a settlement | recorder only | recorder only | recorder only |
 | Add members | ✓ | ✓ | — |
 | Change group settings, import from Splitwise | ✓ | ✓ | — |

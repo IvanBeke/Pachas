@@ -111,7 +111,7 @@
     "isOwed": "is owed",
     "suggestedSettlements": "Suggested settlements",
     "everyoneSettled": "Everyone is settled up.",
-    "noDebtsToSettle": "You have no debts to settle.",
+    "noDebtsToSettle": "You have no payments to settle.",
     "noActivity": "No activity yet",
     "added": "added",
     "paidBy": "paid by",
@@ -130,6 +130,7 @@
     "cancelRemove": "Cancel",
     "couldntRemove": "Couldn't remove member.",
     "settleSuggestion": "{from} owes {to} {amount}",
+    "settlementMessage": "{from} paid {to} {amount}",
     "markPaid": "Mark as paid",
     "cancel": "Cancel"
   },
@@ -236,18 +237,11 @@
   },
   "settleModal": {
     "title": "Settle up",
-    "from": "From",
-    "to": "To",
-    "amount": "Amount ({currency})",
+    "pick": "Which payment are you settling?",
     "note": "Note (optional)",
     "notePlaceholder": "Cash, bank transfer…",
     "record": "Record payment",
-    "errorDifferent": "Pick two different people.",
-    "errorAmount": "Enter an amount.",
-    "couldntRecord": "Couldn't record the payment.",
-    "noDebt": "Nothing owed",
-    "errorNoDebt": "There is no outstanding debt between these two.",
-    "amountNote": "This is the full outstanding amount. It's computed on the server and can't be edited."
+    "couldntRecord": "Couldn't record the payment."
   },
   "addMemberModal": {
     "title": "Add someone to {name}",

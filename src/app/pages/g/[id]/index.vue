@@ -226,6 +226,7 @@ onMounted(async () => {
             <ExpensesTab
               v-if="tab === 'expenses'"
               :expenses="expenses"
+              :settlements="settlements"
               :me="user"
               :base-currency="group.baseCurrency"
               :can-manage-all="isGroupElevated"
@@ -302,7 +303,7 @@ onMounted(async () => {
       :group="group"
       :me="user"
       :preset="settlePreset"
-      :plan="transfers"
+      :transfers="transfers"
       @close="showSettle = false"
       @saved="
         showSettle = false;

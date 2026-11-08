@@ -45,13 +45,15 @@ describe("group role permissions", () => {
     }
   });
 
-  it("limits members to recording settlements for their own debts", () => {
+  it("limits members to recording settlements they owe or are owed", () => {
     const member = { id: "member" };
-    expect(canGroupAction(member, group, { type: "settlement.create", debtorId: "member" })).toBe(true);
-    expect(canGroupAction(member, group, { type: "settlement.create", debtorId: "other" })).toBe(false);
+    expect(canGroupAction(member, group, { type: "settlement.create", debtorId: "member", creditorId: "other" })).toBe(true);
+    expect(canGroupAction(member, group, { type: "settlement.create", debtorId: "other", creditorId: "member" })).toBe(true);
+    expect(canGroupAction(member, group, { type: "settlement.create", debtorId: "other", creditorId: "creator" })).toBe(false);
     expect(canGroupAction(member, group, { type: "settlement.delete", recorderId: "other" })).toBe(false);
     expect(canGroupAction(member, group, { type: "settlement.delete", recorderId: "member" })).toBe(true);
-    expect(canGroupAction({ id: "admin" }, group, { type: "settlement.create", debtorId: "other" })).toBe(true);
+    expect(canGroupAction({ id: "admin" }, group, { type: "settlement.create", debtorId: "other", creditorId: "member" })).toBe(true);
+    expect(canGroupAction({ id: "admin" }, group, { type: "settlement.create", debtorId: "other", creditorId: "creator" })).toBe(true);
   });
 
   it("allows members to leave but not remove someone else", () => {

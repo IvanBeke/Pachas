@@ -14,7 +14,7 @@ export type GroupPermissionAction =
   | { type: "member.role.change"; targetUserId: string; role: GroupRole }
   | { type: "expense.update" | "expense.delete"; ownerId: string }
   | { type: "recurring.update" | "recurring.delete"; ownerId: string }
-  | { type: "settlement.create"; debtorId: string }
+  | { type: "settlement.create"; debtorId: string; creditorId: string }
   | { type: "settlement.delete"; recorderId: string };
 
 export interface PermissionUser {
@@ -75,7 +75,7 @@ export function canGroupAction(
     case "recurring.delete":
       return isElevated || action.ownerId === user.id;
     case "settlement.create":
-      return isElevated || action.debtorId === user.id;
+      return isElevated || action.debtorId === user.id || action.creditorId === user.id;
     case "settlement.delete":
       return action.recorderId === user.id;
   }

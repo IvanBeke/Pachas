@@ -3,6 +3,7 @@ import { fmt, type Profile } from "~/utils/format";
 import { useProfiles } from "~/composables/useGroups";
 import type { Balance, SuggestedTransfer } from "~/composables/useGroupDetail";
 import NetBalances from "~/components/group/NetBalances.vue";
+import { visibleTransfers } from "~/utils/settle";
 
 const props = defineProps<{
   memberIds: string[];
@@ -17,10 +18,8 @@ const emit = defineEmits<{ settle: [from: string, to: string] }>();
 const { t } = useI18n();
 const { nameOf } = useProfiles();
 
-const visibleTransfers = computed(() =>
-  props.isElevated
-    ? props.transfers
-    : props.transfers.filter((transfer) => transfer.from === props.me.id),
+const shownTransfers = computed(() =>
+  visibleTransfers(props.transfers, props.me.id, props.isElevated),
 );
 </script>
 
@@ -35,13 +34,13 @@ const visibleTransfers = computed(() =>
     <div class="section-label" style="margin-top: 22px">
       {{ t("group.suggestedSettlements") }}
     </div>
-    <div v-if="!visibleTransfers.length" class="empty" style="padding: 30px 10px">
+    <div v-if="!shownTransfers.length" class="empty" style="padding: 30px 10px">
       <span class="icon">✅</span>
       <p>{{ t(isElevated ? "group.everyoneSettled" : "group.noDebtsToSettle") }}</p>
     </div>
     <div v-else>
       <div
-        v-for="tr in visibleTransfers"
+        v-for="tr in shownTransfers"
         :key="`${tr.from}:${tr.to}`"
         class="settle-suggest"
       >

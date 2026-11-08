@@ -127,6 +127,7 @@
   .expense-mid{ flex:1; min-width:0; }
   .expense-mid .desc{ font-weight:600; font-size:14.5px; margin-bottom:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .expense-mid .sub{ font-size:12px; color:var(--ink-faint); }
+  .settlement-row{ display:flex; align-items:center; gap:8px; padding:8px 4px; border-bottom:1px solid var(--line); font-size:12px; color:var(--ink-faint); }
   .expense-right{ text-align:right; flex-shrink:0; }
   .expense-right .total{ font-size:13.5px; font-weight:600; font-variant-numeric:tabular-nums; }
   .expense-right .share{ font-size:11.5px; margin-top:2px; font-variant-numeric:tabular-nums; }
@@ -206,6 +207,8 @@
   .modal-actions .btn{ flex:1; text-align:center; }
   .close-x{ position:absolute; right:16px; top:16px; background:var(--bg-sunken); border:none; width:30px; height:30px; border-radius:50%; color:var(--ink-soft); font-size:15px; cursor:pointer; }
   .sheet-wrap{ position:relative; }
+  /* Content-sized modals are as wide as their widest line; this one lists sentences, so give it room. */
+  @media (min-width:640px){ .sheet-wrap.sheet-wrap-md{ width:min(100%, 440px); } }
 
   /* Phones: every modal fills the screen. The header, close button and primary
      action stay put while the content scrolls. Small confirmation dialogs and the

@@ -865,7 +865,7 @@ export async function createSettlement(
     if (!group.memberIds.includes(payload.from) || !group.memberIds.includes(payload.to)) {
       throw createError({ statusCode: 400, message: "Both people must be group members." });
     }
-    if (!canGroupAction({ id: actorId }, group, { type: "settlement.create", debtorId: payload.from })) {
+    if (!canGroupAction({ id: actorId }, group, { type: "settlement.create", debtorId: payload.from, creditorId: payload.to })) {
       forbidden();
     }
     const ledger = await loadPairwiseLedger(gid, tx, row);
