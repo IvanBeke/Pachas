@@ -24,6 +24,13 @@
     "alreadyHave": "Already have one?",
     "loginLink": "Log in",
     "requestFailed": "Request failed",
+    "invalidCredentials": "Incorrect username or password.",
+    "tooManyAttempts": "Too many attempts. Try again later.",
+    "tooManyRegistrations": "Too many accounts created from this address. Try again later.",
+    "usernameInvalid": "Username must be 3-32 characters: letters, numbers, dots, dashes, underscores.",
+    "passwordTooShort": "Password must be at least 8 characters.",
+    "passwordTooLong": "Password must be at most 72 bytes.",
+    "usernameTaken": "That username is already taken.",
     "registrationDisabled": "Registration is disabled on this server. Ask whoever runs it to create your account, or to enable registration.",
     "tagline": "Create your account"
   },

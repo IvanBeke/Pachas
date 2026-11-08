@@ -20,14 +20,14 @@ export default defineEventHandler(async (event) => {
   if (!allowRegistration()) {
     throw createError({
       statusCode: 403,
-      message: "Registration is disabled on this server.",
+      message: "auth_registration_disabled",
     });
   }
   const check = hit(`register:ip:${clientIp(event)}`, 60, 60 * 60_000);
   if (!check.ok) {
     throw createError({
       statusCode: 429,
-      message: "Too many accounts created from this address. Try again later.",
+      message: "auth_too_many_registrations",
       data: { retryAfter: check.retryAfter },
     });
   }
@@ -36,18 +36,14 @@ export default defineEventHandler(async (event) => {
   if (!validUsername(username)) {
     throw createError({
       statusCode: 400,
-      message:
-        "Username must be 3-32 characters: letters, numbers, dots, dashes, underscores.",
+      message: "auth_username_invalid",
     });
   }
   const pwProblem = passwordProblem(password);
   if (pwProblem) {
     throw createError({
       statusCode: 400,
-      message:
-        pwProblem === "too_long"
-          ? "Password must be at most 72 bytes."
-          : "Password must be at least 8 characters.",
+      message: pwProblem === "too_long" ? "auth_password_too_long" : "auth_password_too_short",
     });
   }
   const displayName =
@@ -77,7 +73,7 @@ export default defineEventHandler(async (event) => {
   if (taken) {
     throw createError({
       statusCode: 409,
-      message: "That username is already taken.",
+      message: "auth_username_taken",
     });
   }
   const u = await findUserById(uid);

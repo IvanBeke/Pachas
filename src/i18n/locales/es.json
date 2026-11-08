@@ -24,6 +24,13 @@
     "alreadyHave": "¿Ya tienes una?",
     "loginLink": "Inicia sesión",
     "requestFailed": "Error en la solicitud",
+    "invalidCredentials": "Usuario o contraseña incorrectos.",
+    "tooManyAttempts": "Demasiados intentos. Inténtalo de nuevo más tarde.",
+    "tooManyRegistrations": "Se han creado demasiadas cuentas desde esta dirección. Inténtalo de nuevo más tarde.",
+    "usernameInvalid": "El usuario debe tener entre 3 y 32 caracteres: letras, números, puntos, guiones y guiones bajos.",
+    "passwordTooShort": "La contraseña debe tener al menos 8 caracteres.",
+    "passwordTooLong": "La contraseña debe tener como máximo 72 bytes.",
+    "usernameTaken": "Ese nombre de usuario ya está en uso.",
     "registrationDisabled": "El registro está desactivado en este servidor. Pide a quien lo administre que cree tu cuenta o active el registro.",
     "tagline": "Crea tu cuenta"
   },

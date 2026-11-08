@@ -25,6 +25,22 @@ onMounted(async () => {
   }
 });
 
+/** The server answers with a code; the text comes from the active locale. */
+function authError(error: unknown): string {
+  const code = (error as { data?: { message?: string } })?.data?.message;
+  const messages: Record<string, string> = {
+    auth_invalid_credentials: t("auth.invalidCredentials"),
+    auth_too_many_attempts: t("auth.tooManyAttempts"),
+    auth_registration_disabled: t("auth.registrationDisabled"),
+    auth_too_many_registrations: t("auth.tooManyRegistrations"),
+    auth_username_invalid: t("auth.usernameInvalid"),
+    auth_password_too_short: t("auth.passwordTooShort"),
+    auth_password_too_long: t("auth.passwordTooLong"),
+    auth_username_taken: t("auth.usernameTaken"),
+  };
+  return (code && messages[code]) || t("auth.requestFailed");
+}
+
 async function submit() {
   error.value = null;
   submitting.value = true;
@@ -39,10 +55,7 @@ async function submit() {
       );
     }
   } catch (e: unknown) {
-    error.value =
-      (e as { data?: { message?: string } })?.data?.message ||
-      (e as Error)?.message ||
-      t("auth.requestFailed");
+    error.value = authError(e);
   } finally {
     submitting.value = false;
   }

@@ -41,7 +41,7 @@ const DECOY_HASH = bcrypt.hashSync(
 function tooMany(retryAfter: number) {
   return createError({
     statusCode: 429,
-    message: "Too many attempts. Try again later.",
+    message: "auth_too_many_attempts",
     data: { retryAfter },
   });
 }
@@ -54,7 +54,7 @@ export default defineEventHandler(async (event) => {
   if (Buffer.byteLength(password, "utf8") > 72) {
     throw createError({
       statusCode: 401,
-      message: "Incorrect username or password.",
+      message: "auth_invalid_credentials",
     });
   }
 
@@ -94,7 +94,7 @@ export default defineEventHandler(async (event) => {
     // One message for both failure modes, so the response never says which.
     throw createError({
       statusCode: 401,
-      message: "Incorrect username or password.",
+      message: "auth_invalid_credentials",
     });
   }
   await createSession(event, u.id);
