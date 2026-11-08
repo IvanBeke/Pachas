@@ -26,6 +26,15 @@ const { group, expenses, settlements, balances, transfers, loading, reload } =
 const { load: loadCategories } = useCategories();
 
 const tab = ref<"expenses" | "balances" | "activity" | "recurring">("expenses");
+const tabLabels = computed(() => ({
+  balances: t("group.balances"),
+  activity: t("group.activity"),
+  recurring: t("group.recurring"),
+}));
+usePageTitle(() => [
+  tab.value === "expenses" ? undefined : tabLabels.value[tab.value],
+  group.value?.name,
+]);
 const showExpense = ref(false);
 const editingExpense = ref<Expense | null>(null);
 const showSettle = ref(false);

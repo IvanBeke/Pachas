@@ -4,6 +4,7 @@ import AccountMenu from "~/components/AccountMenu.vue";
 import type { Theme } from "../../shared/theme";
 
 const { t } = useI18n();
+usePageTitle(() => [t("profile.title")]);
 const { user, fetchMe, updateProfile } = useAuth();
 const loading = ref(true);
 const saving = ref(false);

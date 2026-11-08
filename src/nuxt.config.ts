@@ -80,7 +80,7 @@ export default defineNuxtConfig({
   },
   app: {
     head: {
-      title: "Pachas — gastos compartidos",
+      title: "Pachas",
       meta: [
         { charset: "utf-8" },
         {

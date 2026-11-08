@@ -8,8 +8,7 @@
     "save": "Guardar",
     "delete": "Eliminar",
     "edit": "Editar",
-    "loading": "Cargando…",
-    "tagline": "gastos compartidos"
+    "loading": "Cargando…"
   },
   "auth": {
     "username": "Usuario",

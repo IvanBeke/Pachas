@@ -5,6 +5,7 @@ import AccountMenu from "~/components/AccountMenu.vue";
 import GroupModal from "~/components/GroupModal.vue";
 
 const { t } = useI18n();
+usePageTitle(() => [t("groups.title")]);
 const { user, pending: authPending, fetchMe } = useAuth();
 const { groups, pending: groupsPending, refresh } = useGroups();
 const { profiles } = useProfiles();

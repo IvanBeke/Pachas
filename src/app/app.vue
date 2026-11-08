@@ -2,7 +2,8 @@
 const { t } = useI18n();
 
 useHead({
-  title: t("common.appName") + " — " + t("common.tagline"),
+  titleTemplate: (title) =>
+    title ? `${title} · ${t("common.appName")}` : t("common.appName"),
 });
 </script>
 

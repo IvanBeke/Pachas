@@ -85,6 +85,9 @@ behavior.
 - A page with tabs keeps each tab in its own component (`components/group/`,
   `components/admin/`). The page owns the tab switch, auth and the toast; tabs
   load their own data and report failures with an `error` event.
+- Every page sets its browser title with `usePageTitle([...])`, segments from most
+  to least specific. The ` · Pachas` suffix comes from the `titleTemplate` in
+  `app.vue`, so don't add it by hand. The default tab of a page adds no segment.
 - Keep modal form state local so polling does not erase in-progress input.
 - Group polling updates list data, not modal forms or a global page rerender.
 - Derive per-row display values in `computed`s, not template expressions.

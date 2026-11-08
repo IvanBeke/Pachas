@@ -15,6 +15,7 @@ const { user, fetchMe } = useAuth();
 const { profiles, nameOf, ensure } = useProfiles();
 
 const group = ref<Group | null>(null);
+usePageTitle(() => [t("groupEdit.title"), group.value?.name]);
 const loading = ref(true);
 const toast = ref<string | null>(null);
 const saving = ref(false);

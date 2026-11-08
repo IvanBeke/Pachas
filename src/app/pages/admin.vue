@@ -8,6 +8,14 @@ const { t } = useI18n();
 
 const { fetchMe } = useAuth();
 const tab = ref<"overview" | "categories" | "links">("overview");
+const tabLabels = computed(() => ({
+  categories: t("admin.categories"),
+  links: t("admin.titleLinks"),
+}));
+usePageTitle(() => [
+  tab.value === "overview" ? undefined : tabLabels.value[tab.value],
+  t("common.admin"),
+]);
 const ready = ref(false);
 const toast = ref<string | null>(null);
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
