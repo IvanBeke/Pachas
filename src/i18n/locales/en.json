@@ -254,6 +254,7 @@
     "title": "Itemized bill",
     "instructions": "Tap a person's amount to include or exclude them",
     "item": "Item",
+    "price": "Price",
     "total": "Total",
     "includeItem": "Include item",
     "nobodyAssigned": "Nobody assigned to \"{name}\" — tap a person to include them.",

@@ -254,6 +254,7 @@
     "title": "Cuenta detallada",
     "instructions": "Toca el importe de una persona para incluirla o excluirla",
     "item": "Ítem",
+    "price": "Precio",
     "total": "Total",
     "includeItem": "Incluir ítem",
     "nobodyAssigned": "Nadie asignado a \"{name}\" — toca una persona para incluirla.",
