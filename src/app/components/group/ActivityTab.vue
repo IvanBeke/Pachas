@@ -41,7 +41,7 @@ const items = computed<Item[]>(() =>
       <div class="body">
         <template v-if="it.type === 'expense'">
           <b>{{ nameOf(it.data.createdBy, me) }}</b>
-          {{ t("group.added") }} "{{ it.data.title || it.data.description }}" —
+          {{ t("group.added") }} "{{ it.data.title }}" —
           {{ fmt(it.data.amountBase, baseCurrency) }}, {{ t("group.paidBy") }}
           {{ nameOf(it.data.paidBy, me) }}
           <div class="when">{{ timeAgo(it.ts, t) }}</div>

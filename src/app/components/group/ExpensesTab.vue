@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { dateLabel, fmt, parseItems, type Expense, type Profile, type Settlement } from "~/utils/format";
+import { dateLabel, fmt, type Expense, type Profile, type Settlement } from "~/utils/format";
 import { useProfiles } from "~/composables/useGroups";
 import { round2 } from "~/utils/splits";
 import { feedItems } from "~/utils/settle";
@@ -18,27 +18,7 @@ const { t } = useI18n();
 const { nameOf } = useProfiles();
 const { iconOf } = useCategories();
 
-// One-line summary for items-split expenses
-// ("3 items · Ramen, Gyoza").
-// Falls back to the raw description when it isn't an items payload.
-function subtitleOf(e: Expense): string | null {
-  if (e.splitType === "items") {
-    const parsed = parseItems(e.description);
-    if (!parsed) return e.description || null;
-    const names = parsed.items
-      .map((it) => it.name)
-      .filter(Boolean)
-      .slice(0, 3)
-      .join(", ");
-    return `${parsed.items.length} ${t("expenseModal.splitItems")}` + (names ? ` · ${names}` : "");
-  }
-  return e.title && e.description ? e.description : null;
-}
-
-/**
- * Everything the row template needs, derived once per data change instead of
- * on every render (items descriptions are JSON and were re-parsed each time).
- */
+/** Everything the row template needs, derived once per data change instead of on every render. */
 const rows = computed(() => {
   const feed = feedItems(props.expenses, props.settlements);
   return feed.map((item, i) => {
@@ -54,8 +34,7 @@ const rows = computed(() => {
       date: item.date,
       showDate,
       e,
-      title: e.title || e.description,
-      subtitle: subtitleOf(e),
+      title: e.title,
       net,
       canManage: e.createdBy === props.me.id || props.canManageAll,
     };
@@ -90,7 +69,6 @@ const rows = computed(() => {
             {{ row.title }}
             <span v-if="row.e.recurringId" :title="t('group.recurring')">🔁</span>
           </div>
-          <div v-if="row.subtitle" class="sub">{{ row.subtitle }}</div>
           <div class="sub">
             {{ nameOf(row.e.paidBy, me) }} {{ t("group.paid") }}
             {{ fmt(row.e.amountBase, baseCurrency)
