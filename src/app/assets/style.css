@@ -219,10 +219,13 @@
     .overlay:not(.overlay-compact) .sheet{
       max-width:none; height:100%; max-height:none; border-radius:0;
       padding-top:calc(env(safe-area-inset-top,0px) + 18px);
+      display:flex; flex-direction:column;
     }
+    .overlay:not(.overlay-compact) .sheet > *{ flex-shrink:0; }
+    .overlay:not(.overlay-compact) .sheet > :has(+ .modal-actions){ margin-bottom:18px; }
     .overlay:not(.overlay-compact) .close-x{ top:calc(env(safe-area-inset-top,0px) + 14px); z-index:2; }
     .overlay:not(.overlay-compact) .modal-actions{
-      position:sticky; bottom:0; z-index:2; margin:18px -20px calc(-1 * (env(safe-area-inset-bottom,0px) + 20px));
+      position:sticky; bottom:0; z-index:2; margin:auto -20px calc(-1 * (env(safe-area-inset-bottom,0px) + 20px));
       padding:12px 20px calc(env(safe-area-inset-bottom,0px) + 12px);
       background:var(--bg-elevated); border-top:1px solid var(--line);
     }
