@@ -1,3 +1,4 @@
+import { shallowRef } from "vue";
 import { round2 } from "../../shared/money";
 
 export const CURRENCIES = [
@@ -5,22 +6,22 @@ export const CURRENCIES = [
   "CZK", "AUD", "CAD", "INR", "CNY", "MXN", "BRL", "NZD", "SGD", "ZAR",
 ];
 
-export const SYMBOLS: Record<string, string> = {
-  EUR: "€", USD: "$", GBP: "£", JPY: "¥", CHF: "CHF", SEK: "kr",
-  NOK: "kr", DKK: "kr", PLN: "zł", CZK: "Kč", AUD: "A$", CAD: "C$",
-  INR: "₹", CNY: "¥", MXN: "$", BRL: "R$", NZD: "NZ$", SGD: "S$", ZAR: "R",
-};
+/** Active app locale; kept in sync by `plugins/format-locale.ts`. Reactive so templates re-render on change. */
+export const formatLocale = shallowRef<string | undefined>(undefined);
 
-/** Amounts always show two decimals (€12.34). */
-export function fmt(amount: number, currency: string): string {
-  const sym = SYMBOLS[currency] || currency + " ";
+/** Amounts always show two decimals, formatted for the app locale (12,34 € / €12.34). */
+export function fmt(amount: number, currency: string, locale = formatLocale.value): string {
   const n = round2(amount);
-  const neg = n < 0;
-  const s = Math.abs(n).toLocaleString(undefined, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-  return (neg ? "-" : "") + sym + s;
+  try {
+    return new Intl.NumberFormat(locale, {
+      style: "currency",
+      currency,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(n);
+  } catch {
+    return `${n.toFixed(2)} ${currency}`;
+  }
 }
 
 export function todayStr(): string {

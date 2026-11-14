@@ -11,6 +11,14 @@ describe("fmt", () => {
     expect(fmt(-20.26, "EUR")).toContain("-");
   });
 
+  it("puts the euro symbol after the amount in Spanish", () => {
+    expect(fmt(0, "EUR", "es")).toMatch(/^0,00\s€$/);
+  });
+
+  it("puts the euro symbol before the amount in English", () => {
+    expect(fmt(12.34, "EUR", "en")).toBe("€12.34");
+  });
+
   it("falls back to the code for an unknown currency", () => {
     expect(fmt(5, "ZZZ")).toContain("ZZZ");
   });
