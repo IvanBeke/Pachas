@@ -29,10 +29,26 @@ describe("title matching", () => {
     expect(categoryForTitle(index, "gas   Natural")).toBe(5);
   });
 
-  it("does not match part of a title", () => {
-    expect(categoryForTitle(index, "Compra Mercadona centro")).toBeNull();
+  it("matches when the title contains a link title as whole words", () => {
+    expect(categoryForTitle(index, "Compra Mercadona centro")).toBe(3);
+    expect(categoryForTitle(index, "Mercadona, centro")).toBe(3);
+    expect(categoryForTitle(index, "Factura GAS natural julio")).toBe(5);
+  });
+
+  it("does not match part of a word or a partial title", () => {
     expect(categoryForTitle(index, "Mercad")).toBeNull();
+    expect(categoryForTitle(index, "Supermercadonas")).toBeNull();
     expect(categoryForTitle(index, "gas")).toBeNull();
+  });
+
+  it("prefers the longest matching link title", () => {
+    const nested = buildTitleLinkIndex([
+      { title: "Gas", categoryId: 1 },
+      { title: "Gas natural", categoryId: 2 },
+    ]);
+    expect(categoryForTitle(nested, "Recibo gas natural")).toBe(2);
+    expect(categoryForTitle(nested, "Recibo gas")).toBe(1);
+    expect(categoryForTitle(nested, "Gasolina")).toBeNull();
   });
 
   it("returns null for a blank title or an empty index", () => {

@@ -291,7 +291,7 @@
     "couldntDelete": "No se pudo eliminar la categoría.",
     "titleLinks": "Títulos enlazados",
     "addLink": "Enlazar un título",
-    "linkHint": "Cuando alguien escribe uno de estos títulos en un gasto, se selecciona su categoría automáticamente. El título debe coincidir completo; se ignoran mayúsculas, acentos y espacios de más. Los títulos se guardan en minúsculas y sin acentos, así que \"Café\" se guarda como \"cafe\".",
+    "linkHint": "Cuando alguien escribe un título que contiene uno de estos (como palabras completas), se selecciona su categoría automáticamente; gana la coincidencia más larga. Se ignoran mayúsculas, acentos y espacios de más. Los títulos se guardan en minúsculas y sin acentos, así que \"Café\" se guarda como \"cafe\".",
     "linkTitle": "Título",
     "linkTitlePlaceholder": "cena",
     "linkCategory": "Categoría",

@@ -40,7 +40,8 @@ behavior.
 
 - Compare titles only through `normalizeText` and the shared matcher
   (`shared/category-links.ts`); never re-implement matching in a component or
-  route. Match whole titles, not substrings.
+  route. A link matches when its title appears in the expense title as whole
+  words (not inside a longer word); the longest matching link wins.
 - Category links are admin-managed global data: reads need a session, writes
   need the site admin role. Deleting a category must go through
   `deleteCategoryMigrating` so its links are moved, not cascaded away.

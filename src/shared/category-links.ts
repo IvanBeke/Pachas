@@ -1,7 +1,9 @@
 /**
  * Title → category links, shared by the browser and the server so both match
  * titles the same way (see `normalizeText`: case, accents and extra spaces are
- * ignored, and the whole title must match, not part of it).
+ * ignored). A link matches when its title appears in the expense title as whole
+ * words, so "Compra Mercadona centro" matches the "Mercadona" link but
+ * "Gasolina" does not match "Gas".
  */
 import { normalizeText } from "./text";
 
@@ -24,10 +26,37 @@ export function buildTitleLinkIndex(links: readonly TitleLink[]): TitleLinkIndex
   return index;
 }
 
-/** The category linked to `title`, or `null` when no link matches. */
+const WORD_CHAR = /[\p{L}\p{N}]/u;
+
+/** True when `key` occurs in `text` as whole words (not inside a longer word). */
+function containsWords(text: string, key: string): boolean {
+  for (let at = text.indexOf(key); at !== -1; at = text.indexOf(key, at + 1)) {
+    const before = text[at - 1];
+    const after = text[at + key.length];
+    if (
+      (before === undefined || !WORD_CHAR.test(before)) &&
+      (after === undefined || !WORD_CHAR.test(after))
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * The category of the link whose title appears in `title`, or `null` when none
+ * does. When several links match, the longest (most specific) one wins.
+ */
 export function categoryForTitle(index: TitleLinkIndex, title: string): number | null {
-  const key = normalizeText(title);
-  return key ? (index.get(key) ?? null) : null;
+  const text = normalizeText(title);
+  if (!text) return null;
+  let best: { length: number; categoryId: number } | null = null;
+  for (const [key, categoryId] of index) {
+    if ((!best || key.length > best.length) && containsWords(text, key)) {
+      best = { length: key.length, categoryId };
+    }
+  }
+  return best?.categoryId ?? null;
 }
 
 /**

@@ -291,7 +291,7 @@
     "couldntDelete": "Couldn't delete category.",
     "titleLinks": "Title links",
     "addLink": "Link a title",
-    "linkHint": "When someone types one of these titles in an expense, its category is selected automatically. The whole title must match; case, accents and extra spaces are ignored. Titles are saved in lowercase without accents, so \"Café\" is saved as \"cafe\".",
+    "linkHint": "When someone types a title containing one of these (as whole words), its category is selected automatically; the longest match wins. Case, accents and extra spaces are ignored. Titles are saved in lowercase without accents, so \"Café\" is saved as \"cafe\".",
     "linkTitle": "Title",
     "linkTitlePlaceholder": "dinner",
     "linkCategory": "Category",

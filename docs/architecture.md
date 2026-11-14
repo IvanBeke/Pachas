@@ -64,8 +64,9 @@ A site admin can link an expense title to a category (admin screen, "Title
 links" tab). A link is global: one normalised title maps to one category, and a
 category can have many titles. Only the normalised title is stored and shown
 (`normalizeText` in `src/shared/text.ts`: lower-case, no accents, single
-spaces) and incoming titles are compared in that form; they must match the
-whole title; the matcher in `src/shared/category-links.ts` is used by both
+spaces) and incoming titles are compared in that form; a link matches when its
+title appears in the expense title as whole words (the longest matching link
+wins); the matcher in `src/shared/category-links.ts` is used by both
 the browser and the server. Deleting a category re-points its links to the
 category its expenses move to, instead of letting `ON DELETE CASCADE` drop them.
 
