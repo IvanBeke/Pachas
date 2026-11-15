@@ -21,7 +21,6 @@
     --sans:'IBM Plex Sans', system-ui, -apple-system, sans-serif;
     box-sizing:border-box;
     padding-top:env(safe-area-inset-top,0px);
-    padding-bottom:env(safe-area-inset-bottom,0px);
     color-scheme:light dark;
   }
   :root[data-theme="light"]{ color-scheme:light; }
@@ -150,7 +149,7 @@
   .activity-row .body .when{ color:var(--ink-faint); font-size:12px; margin-top:2px; }
 
   /* ---------- FAB bar ---------- */
-  .fab-bar{ position:fixed; left:0; right:0; bottom:0; display:flex; justify-content:center; padding:12px 18px calc(env(safe-area-inset-bottom,0px) + 12px); pointer-events:none; z-index:15; }
+  .fab-bar{ position:fixed; left:0; right:0; bottom:0; display:flex; justify-content:center; padding:12px 18px 12px; pointer-events:none; z-index:15; }
   .fab-bar .inner{ max-width:640px; width:100%; display:flex; gap:10px; pointer-events:auto; }
   .fab{ flex:1; padding:14px; border-radius:999px; font-size:14.5px; font-weight:700; border:1px solid var(--line-strong); background:var(--bg-elevated); color:var(--ink); cursor:pointer; box-shadow:0 6px 18px rgba(0,0,0,0.12); }
   .fab.primary{ background:var(--accent); border-color:var(--accent); color:var(--accent-ink); }
@@ -170,7 +169,7 @@
   @media (min-width:640px){ .overlay{ align-items:center; } }
   .sheet{
     background:var(--bg-elevated); width:100%; max-width:560px; max-height:88vh; overflow-y:auto;
-    border-radius:20px 20px 0 0; padding:18px 20px calc(env(safe-area-inset-bottom,0px) + 20px);
+    border-radius:20px 20px 0 0; padding:18px 20px 20px;
   }
   @media (min-width:640px){ .sheet{ border-radius:18px; margin-bottom:5vh; } }
   .sheet h2{ font-family:var(--serif); font-weight:600; font-size:19px; margin:2px 0 18px; }

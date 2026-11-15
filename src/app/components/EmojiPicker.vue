@@ -190,7 +190,7 @@ function pick(emoji: string) {
   gap: 10px;
   background: var(--bg-elevated);
   border-radius: 20px 20px 0 0;
-  padding: 14px 14px calc(env(safe-area-inset-bottom, 0px) + 14px);
+  padding: 14px;
   outline: none;
 }
 @media (min-width: 640px) {
