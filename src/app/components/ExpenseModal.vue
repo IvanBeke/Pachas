@@ -44,7 +44,7 @@ const props = defineProps<{
 }>();
 const emit = defineEmits<{ close: []; saved: []; error: [msg: string] }>();
 
-const { categories, iconOf: categoryIcon } = useCategories();
+const { categories } = useCategories();
 
 const { nameOf } = useProfiles();
 
@@ -125,10 +125,6 @@ function splitDefault(id: string): number {
   if (splitType.value === "exact") return isChecked(id) ? round2(amt / n) : 0;
   if (splitType.value === "percent") return isChecked(id) ? round2(100 / n) : 0;
   return isChecked(id) ? 1 : 0;
-}
-
-function splitVal(id: string): number {
-  return splitValues.value[id] ?? 0;
 }
 
 const rounding = computed(() =>

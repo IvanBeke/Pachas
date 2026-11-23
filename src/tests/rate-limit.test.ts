@@ -68,25 +68,25 @@ describe("peek", () => {
     // sign-in not consume the attack budget.
     resetRateLimits();
     for (let i = 0; i < 3; i++) hit("k", 3, 60_000);
-    expect(peek("k", 3, 60_000).ok).toBe(false);
+    expect(peek("k", 3).ok).toBe(false);
 
     // Peeking repeatedly must not push the counter further over.
-    for (let i = 0; i < 50; i++) expect(peek("k", 3, 60_000).ok).toBe(false);
-    expect(peek("k", 3, 60_000).ok).toBe(false);
+    for (let i = 0; i < 50; i++) expect(peek("k", 3).ok).toBe(false);
+    expect(peek("k", 3).ok).toBe(false);
   });
 
   it("allows an untouched bucket", () => {
     resetRateLimits();
-    expect(peek("fresh", 1, 60_000).ok).toBe(true);
+    expect(peek("fresh", 1).ok).toBe(true);
     // Still untouched: peeking created no window.
-    expect(peek("fresh", 1, 60_000).ok).toBe(true);
+    expect(peek("fresh", 1).ok).toBe(true);
   });
 
   it("allows a bucket that is under its limit", () => {
     resetRateLimits();
     hit("k", 5, 60_000);
     hit("k", 5, 60_000);
-    expect(peek("k", 5, 60_000).ok).toBe(true);
+    expect(peek("k", 5).ok).toBe(true);
   });
 });
 

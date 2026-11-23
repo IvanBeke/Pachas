@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { computeSplits, sumSplits } from "../app/utils/splits";
 import {
+  allocateAnyPayment,
   allocatePayment,
   balancesFromPairwiseDebts,
   buildPairwiseDebts,
@@ -141,6 +142,63 @@ describe("generated expense ledgers: settlement strategies", () => {
       const expenses = makeExpenses(mulberry32(seed));
       for (const expense of expenses) {
         expect(sumSplits(expense.splits)).toBeCloseTo(expense.amountBase, 2);
+      }
+    }
+  });
+});
+
+describe("generated ledgers: payments of any amount", () => {
+  const cents = (n: number) => Math.round(n * 100);
+
+  it("moves the payer and receiver balances by exactly the amount, in both modes", () => {
+    for (let seed = 1; seed <= 200; seed++) {
+      const rand = mulberry32(seed * 7919);
+      const expenses = makeExpenses(mulberry32(seed));
+      const debts = buildPairwiseDebts(expenses, []);
+      const before = new Map(
+        balancesFromPairwiseDebts(debts).map((b) => [b.memberId, cents(b.amount)]),
+      );
+      const from = USERS[Math.floor(rand() * USERS.length)]!;
+      const to = USERS.filter((u) => u !== from)[Math.floor(rand() * (USERS.length - 1))]!;
+      const amount = (1 + Math.floor(rand() * 60_000)) / 100;
+      for (const simplify of [true, false]) {
+        const allocations = allocateAnyPayment(debts, from, to, amount, { simplify });
+        const label = `seed=${seed} simplify=${simplify} ${from}->${to} ${amount}`;
+        expect(allocations, label).not.toBeNull();
+        const keys = (allocations ?? []).map((a) => `${a.debtorId}:${a.creditorId}`);
+        expect(new Set(keys).size, `${label} unique pairs`).toBe(keys.length);
+        for (const a of allocations ?? []) {
+          expect(cents(a.amount), `${label} positive`).toBeGreaterThan(0);
+        }
+        const afterDebts = buildPairwiseDebts(expenses, allocations ?? []);
+        const after = new Map(
+          balancesFromPairwiseDebts(afterDebts).map((b) => [b.memberId, cents(b.amount)]),
+        );
+        let total = 0;
+        for (const id of USERS) {
+          const delta = (after.get(id) ?? 0) - (before.get(id) ?? 0);
+          total += after.get(id) ?? 0;
+          const expected = id === from ? cents(amount) : id === to ? -cents(amount) : 0;
+          expect(delta, `${label} ${id}`).toBe(expected);
+        }
+        expect(total, `${label} sums to zero`).toBe(0);
+        if (!simplify) {
+          expect(allocations, label).toEqual([{ debtorId: from, creditorId: to, amount }]);
+        }
+      }
+    }
+  });
+
+  it("an exact fit routes like allocatePayment, with nothing recorded directly", () => {
+    for (let seed = 1; seed <= 100; seed++) {
+      const debts = buildPairwiseDebts(makeExpenses(mulberry32(seed)), []);
+      let current = debts;
+      for (const t of suggestSimplifiedTransfers(debts)) {
+        const exact = allocatePayment(current, t.from, t.to, t.amount);
+        expect(exact, `seed=${seed}`).not.toBeNull();
+        expect(allocateAnyPayment(current, t.from, t.to, t.amount, { simplify: true }), `seed=${seed}`)
+          .toEqual(exact?.allocations);
+        current = exact?.debts ?? current;
       }
     }
   });

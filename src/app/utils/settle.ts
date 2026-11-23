@@ -1,4 +1,6 @@
-import type { SuggestedTransfer } from "../composables/useGroupDetail";
+import type { Balance, SuggestedTransfer } from "../composables/useGroupDetail";
+import { fromCents, toCents } from "../../shared/money";
+import { maxPaymentCents, owesMoney } from "../../shared/payment-rules";
 import type { Expense, Settlement } from "./format";
 
 /**
@@ -18,6 +20,63 @@ export function visibleTransfers(
 
 export function transferKey(transfer: Pick<SuggestedTransfer, "from" | "to">): string {
   return `${transfer.from}:${transfer.to}`;
+}
+
+/** Mirrors the server's `settlement.create` rule, which stays the authority. */
+export function canRecordPayment(
+  from: string,
+  to: string,
+  meId: string,
+  isElevated: boolean,
+): boolean {
+  return from !== to && (isElevated || from === meId || to === meId);
+}
+
+export interface PaymentContext {
+  memberIds: string[];
+  balances: Balance[];
+  transfers: SuggestedTransfer[];
+  meId: string;
+  isElevated: boolean;
+}
+
+/** Who can pay: people who owe money, and for a member only those they could receive from (or themselves). */
+export function payerOptions(ctx: PaymentContext): string[] {
+  return ctx.memberIds.filter(
+    (id) =>
+      owesMoney(ctx.balances, ctx.transfers, id) &&
+      (ctx.isElevated ||
+        id === ctx.meId ||
+        maxPaymentCents(ctx.balances, ctx.transfers, id, ctx.meId) > 0),
+  );
+}
+
+/** Who `from` can pay: people who are owed, within what the person recording may do. */
+export function receiverOptions(ctx: PaymentContext, from: string): string[] {
+  return ctx.memberIds.filter(
+    (id) =>
+      canRecordPayment(from, id, ctx.meId, ctx.isElevated) &&
+      maxPaymentCents(ctx.balances, ctx.transfers, from, id) > 0,
+  );
+}
+
+/**
+ * The payer's and receiver's net balances before and after a payment of
+ * `amount`. A payment moves exactly that much from the receiver's balance to the
+ * payer's, whatever debts it clears, so this is the real result, not an estimate.
+ */
+export function balancesAfter(
+  balances: Balance[],
+  from: string,
+  to: string,
+  amount: number,
+): { id: string; before: number; after: number }[] {
+  const cents = toCents(amount);
+  const row = (id: string, delta: number) => {
+    const before = toCents(balances.find((balance) => balance.memberId === id)?.amount ?? 0);
+    return { id, before: fromCents(before), after: fromCents(before + delta) };
+  };
+  return [row(from, cents), row(to, -cents)];
 }
 
 export type FeedItem =

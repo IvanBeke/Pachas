@@ -2,7 +2,7 @@
 import { useAuth } from "~/composables/useAuth";
 
 const { t } = useI18n();
-const { user, pending, fetchMe, login, register } = useAuth();
+const { pending, fetchMe, login, register } = useAuth();
 const mode = ref<"login" | "register">("login");
 usePageTitle(() => [mode.value === "login" ? t("auth.login") : t("auth.createAccountButton")]);
 const username = ref("");

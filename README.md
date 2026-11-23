@@ -13,6 +13,8 @@ service is required.
 - Multi-currency expenses with five ways to split a bill: equal, exact amounts,
   percentages, shares, or itemised.
 - Group-net (simplified) or direct pairwise settlement suggestions.
+- Record a suggested payment in full, or any other amount (partial or more than owed) up to
+  what the receiver is owed.
 - Recurring expenses (weekly, monthly, yearly) that the server turns into real
   expenses on schedule, with an optional end date.
 - Splitwise CSV import, an activity feed, and a profile page (name, language,

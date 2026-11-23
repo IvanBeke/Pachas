@@ -25,7 +25,13 @@ behavior.
 - Validate money at each boundary. `Infinity` is especially dangerous:
   arithmetic can produce `NaN`, which defeats ordinary comparisons. Use
   `Number.isFinite` for inputs. Amounts are capped at `MAX_AMOUNT`.
-- Keep the server authoritative for settlements and Splitwise imports too.
+- Keep the server authoritative for settlements and Splitwise imports too. A
+  payment's amount is the user's selection, validated and rounded on the server;
+  its allocations are always derived there (`allocateAnyPayment`), never sent by
+  the browser. A payment can't exceed what the receiver is owed
+  (`maxPaymentCents`) and the payer must owe money (`owesMoney`), judged from the
+  payer and receiver, not the person recording it, so recording one can't create a
+  debt for someone who is not owed anything.
 - Group base currency is immutable after expenses exist.
 
 ## Categories

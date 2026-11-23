@@ -316,6 +316,7 @@ onMounted(async () => {
       :me="user"
       :preset="settlePreset"
       :transfers="transfers"
+      :balances="balances"
       @close="showSettle = false"
       @saved="
         showSettle = false;

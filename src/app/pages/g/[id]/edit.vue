@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { CURRENCIES, type Group, type Profile } from "~/utils/format";
+import { CURRENCIES, type Group } from "~/utils/format";
 import { useAuth } from "~/composables/useAuth";
 import { useProfiles } from "~/composables/useGroups";
 import AddMemberModal from "~/components/AddMemberModal.vue";
@@ -12,7 +12,7 @@ const { t } = useI18n();
 const route = useRoute();
 const gid = String(route.params.id);
 const { user, fetchMe } = useAuth();
-const { profiles, nameOf, ensure } = useProfiles();
+const { nameOf, ensure } = useProfiles();
 
 const group = ref<Group | null>(null);
 usePageTitle(() => [t("groupEdit.title"), group.value?.name]);

@@ -58,7 +58,7 @@ const ALLOW: RateLimitResult = { ok: true, retryAfter: 0 };
  * (a password hash) so a blocked client is rejected cheaply, and so that a
  * successful attempt doesn't count against the limit.
  */
-export function peek(key: string, limit: number, windowMs: number): RateLimitResult {
+export function peek(key: string, limit: number): RateLimitResult {
   const now = Date.now();
   sweepIfDue(now);
   const w = windows.get(key);

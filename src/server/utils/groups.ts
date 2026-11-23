@@ -14,6 +14,7 @@ import {
 import { publicUser, type DbUser } from "./auth";
 import { GroupRole } from "../../shared/group-roles";
 import { fromCents, toCents } from "../../shared/money";
+import { maxPaymentCents, owesMoney } from "../../shared/payment-rules";
 import { canGroupAction, type GroupPermissionAction } from "./group-permissions";
 import {
   lockGroupWithMembers,
@@ -21,7 +22,7 @@ import {
   type DbTransaction,
 } from "./sqlite-writes";
 import {
-  allocatePayment,
+  allocateAnyPayment,
   balancesFromPairwiseDebts,
   buildPairwiseDebts,
   suggestPairwiseTransfers,
@@ -869,23 +870,36 @@ export async function createSettlement(
       forbidden();
     }
     const ledger = await loadPairwiseLedger(gid, tx, row);
-    const suggested = transfersForLedger(ledger).find(
-      (transfer) => transfer.from === payload.from && transfer.to === payload.to,
-    );
-    if (!suggested) {
-      throw createError({ statusCode: 400, message: "There is no suggested payment between these members." });
+    const transfers = transfersForLedger(ledger);
+    // Without an amount the payment settles the whole suggested debt; with one
+    // it can be any positive amount up to what the receiver is owed.
+    let amountCents: number;
+    if (payload.amount === undefined) {
+      const suggested = transfers.find(
+        (transfer) => transfer.from === payload.from && transfer.to === payload.to,
+      );
+      if (!suggested) {
+        throw createError({ statusCode: 400, message: "There is no suggested payment between these members." });
+      }
+      amountCents = toCents(suggested.amount);
+    } else {
+      amountCents = toCents(payload.amount);
     }
-    const amountCents =
-      payload.amount === undefined ? toCents(suggested.amount) : toCents(payload.amount);
-    if (!Number.isFinite(amountCents) || amountCents <= 0) {
+    if (amountCents <= 0) {
       throw createError({ statusCode: 400, message: "Amount must be greater than zero." });
     }
-    if (amountCents > toCents(suggested.amount)) {
-      throw createError({ statusCode: 400, message: "Amount is more than the outstanding debt." });
+    // Both limits depend only on the two people in the payment, never on who records it.
+    if (!owesMoney(ledger.balances, transfers, payload.from)) {
+      throw createError({ statusCode: 400, message: "The payer doesn't owe anything." });
+    }
+    if (amountCents > maxPaymentCents(ledger.balances, transfers, payload.from, payload.to)) {
+      throw createError({ statusCode: 400, message: "Amount is more than the receiver is owed." });
     }
     const amount = fromCents(amountCents);
-    const allocation = allocatePayment(ledger.debts, payload.from, payload.to, amount);
-    if (!allocation) {
+    const allocations = allocateAnyPayment(ledger.debts, payload.from, payload.to, amount, {
+      simplify: ledger.simplifyTransfers,
+    });
+    if (!allocations) {
       throw createError({ statusCode: 409, message: "settlement_allocation_failed" });
     }
     await tx.insert(settlements).values({
@@ -898,9 +912,9 @@ export async function createSettlement(
       createdBy: actorId,
       createdAt: Date.now(),
     });
-    if (allocation.allocations.length) {
+    if (allocations.length) {
       await tx.insert(settlementAllocations).values(
-        allocation.allocations.map((entry) => ({
+        allocations.map((entry) => ({
           settlementId: sid,
           debtorId: entry.debtorId,
           creditorId: entry.creditorId,

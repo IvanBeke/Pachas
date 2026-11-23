@@ -24,6 +24,13 @@ export interface PairwiseDebt {
 export interface SettlementAllocation extends PairwiseDebt {}
 
 
+function byPair(left: PairwiseDebt, right: PairwiseDebt): number {
+  return (
+    left.debtorId.localeCompare(right.debtorId) ||
+    left.creditorId.localeCompare(right.creditorId)
+  );
+}
+
 function pairKey(a: string, b: string): string {
   return a < b ? `${a}\0${b}` : `${b}\0${a}`;
 }
@@ -66,11 +73,7 @@ export function buildPairwiseDebts(
         ? { debtorId: row.a, creditorId: row.b, amount: fromCents(row.cents) }
         : { debtorId: row.b, creditorId: row.a, amount: fromCents(-row.cents) },
     )
-    .sort(
-      (left, right) =>
-        left.debtorId.localeCompare(right.debtorId) ||
-        left.creditorId.localeCompare(right.creditorId),
-    );
+    .sort(byPair);
 }
 
 export function balancesFromPairwiseDebts(debts: PairwiseDebt[]): Balance[] {
@@ -172,13 +175,17 @@ export function suggestPairwiseTransfers(
   }));
 }
 
-export function allocatePayment(
+/**
+ * Routes up to `requested` cents from `from` to `to` along the existing debt
+ * paths (max flow) and returns what actually fit: `flow` cents, the debt edges
+ * it cleared, and the debts that remain. `null` only for an invalid request.
+ */
+function routePayment(
   debts: PairwiseDebt[],
   from: string,
   to: string,
-  amount: number,
-): { debts: PairwiseDebt[]; allocations: SettlementAllocation[] } | null {
-  const requested = toCents(amount);
+  requested: number,
+): { flow: number; debts: PairwiseDebt[]; allocations: SettlementAllocation[] } | null {
   if (from === to || requested <= 0) return null;
 
   interface ResidualEdge {
@@ -270,7 +277,6 @@ export function allocatePayment(
     }
     flow += pathCapacity;
   }
-  if (flow !== requested) return null;
 
   const allocations = originalEdges
     .map((edge) => ({
@@ -279,11 +285,7 @@ export function allocatePayment(
       amount: fromCents(edge.capacity - edge.forward.capacity),
     }))
     .filter((edge) => edge.amount > 0)
-    .sort(
-      (left, right) =>
-        left.debtorId.localeCompare(right.debtorId) ||
-        left.creditorId.localeCompare(right.creditorId),
-    );
+    .sort(byPair);
 
   const allocationsByPair = new Map(
     allocations.map((allocation) => [
@@ -298,6 +300,57 @@ export function allocatePayment(
       ? [{ ...debt, amount: fromCents(cents) }]
       : [];
   });
-  return { debts: nextDebts, allocations };
+  return { flow, debts: nextDebts, allocations };
+}
+
+/** A payment that must fit the debt paths exactly, or it is refused. */
+export function allocatePayment(
+  debts: PairwiseDebt[],
+  from: string,
+  to: string,
+  amount: number,
+): { debts: PairwiseDebt[]; allocations: SettlementAllocation[] } | null {
+  const requested = toCents(amount);
+  const routed = routePayment(debts, from, to, requested);
+  if (!routed || routed.flow !== requested) return null;
+  return { debts: routed.debts, allocations: routed.allocations };
+}
+
+/**
+ * Allocation for a payment of any amount between any two members. In simplified
+ * mode it clears as much debt as fits along the debt paths and records the rest
+ * (an over-payment, or a pair with no path) as one direct `from -> to`
+ * allocation, so partial payments leave no stale cycles behind. In pairwise mode
+ * it is always one direct allocation, so third parties' debts are never touched.
+ * Either way the payer gains `amount` and the receiver loses it.
+ */
+export function allocateAnyPayment(
+  debts: PairwiseDebt[],
+  from: string,
+  to: string,
+  amount: number,
+  options: { simplify: boolean },
+): SettlementAllocation[] | null {
+  const requested = toCents(amount);
+  if (from === to || requested <= 0) return null;
+
+  let routed: SettlementAllocation[] = [];
+  let flow = 0;
+  if (options.simplify) {
+    const result = routePayment(debts, from, to, requested);
+    if (!result) return null;
+    routed = result.allocations;
+    flow = result.flow;
+  }
+
+  const direct = requested - flow;
+  if (direct === 0) return routed;
+  const isPayment = (entry: SettlementAllocation) =>
+    entry.debtorId === from && entry.creditorId === to;
+  const extra = direct + toCents(routed.find(isPayment)?.amount ?? 0);
+  return [
+    ...routed.filter((entry) => !isPayment(entry)),
+    { debtorId: from, creditorId: to, amount: fromCents(extra) },
+  ].sort(byPair);
 }
 

@@ -25,7 +25,8 @@ The browser sends the user's selections (split type, participants, typed
 values, the amount and rate); the server computes and validates every persisted
 amount, including the base-currency amount. `src/shared/splits.ts` is used for
 previews and server-side calculation, so the two cannot drift. Settlement
-amounts and Splitwise imports are likewise derived or re-parsed on the server.
+allocations and Splitwise imports are likewise derived or re-parsed on the server;
+a payment's amount is a selection that the server validates against the balances.
 
 Money is stored as **integer cents** (`src/shared/money.ts`). The API speaks
 decimal units; `src/server/utils/groups.ts` converts at the database boundary.
@@ -171,7 +172,37 @@ All routes are under `/api`. Everything except `health`, `config`, `login`,
 
 Settlement plans can use group-net transfers allocated through the debt graph
 or direct pairwise debts. A member involved in the selected plan cannot leave or
-be removed until clear. Splitwise member columns contain **net balances** (the
+be removed until clear.
+
+### Payments
+
+A payment is any positive amount (rounded to the cent) between two members, not
+only a suggested transfer, under two rules that depend only on the payer and the
+receiver, never on who records it (`src/shared/payment-rules.ts`, applied by the
+server and by the form):
+
+- The payer owes money: a negative balance, or a suggested payment to make
+  (`owesMoney`).
+- The receiver is owed, and the amount is at most what they are owed: their net
+  balance, or the suggested payment between the two if larger (`maxPaymentCents`).
+
+A payment can't be made to someone who is not owed anything. In the
+modal, picking a suggested payment settles its whole debt (no amount is sent);
+"Another payment" opens the pair pickers and an amount field, and previews the
+real balances of payer and receiver (a payment moves exactly its amount from the
+receiver's balance to the payer's). A request with no amount settles the whole
+suggested debt for that pair.
+
+The server allocates the payment (`allocateAnyPayment`). In simplified mode it
+first clears debt along the existing paths from payer to receiver, so partial
+payments leave no stale cycles, and only the excess (an over-payment, or a pair
+with no path) is recorded as one direct `payer → receiver` allocation, which turns
+into a debt the other way. In pairwise mode it is always that single direct
+allocation and third parties' debts are untouched. Deleting the payment reverts it.
+
+### Imports
+
+Splitwise member columns contain **net balances** (the
 payer's portion is already deducted), not raw shares. Imported rows must be in
 the group's base currency, have real calendar dates, and their shares must sum
 to the cost exactly; an import is capped at 20,000 rows.

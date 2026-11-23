@@ -7,8 +7,7 @@
     "cancel": "Cancel",
     "save": "Save",
     "delete": "Delete",
-    "edit": "Edit",
-    "loading": "Loading…"
+    "edit": "Edit"
   },
   "auth": {
     "username": "Username",
@@ -239,6 +238,13 @@
     "pick": "Which payment are you settling?",
     "note": "Note (optional)",
     "notePlaceholder": "Cash, bank transfer…",
+    "other": "Another payment",
+    "from": "Paid by",
+    "to": "Paid to",
+    "amount": "Amount ({currency})",
+    "max": "Up to {amount}",
+    "after": "Balances after this payment",
+    "noPayment": "No payment can be recorded with this selection.",
     "record": "Record payment",
     "couldntRecord": "Couldn't record the payment."
   },
@@ -328,8 +334,6 @@
     "saved": "Group updated.",
     "couldntSave": "Couldn't save the group.",
     "readOnly": "You can view these settings, but only the group creator or an admin can change them.",
-    "creator": "creator",
-    "you": "you",
     "role_creator": "Creator",
     "role_admin": "Admin",
     "role_member": "Member",

@@ -68,15 +68,11 @@ export default defineEventHandler(async (event) => {
 
   // Checked before the hash, so a blocked client is rejected without making us
   // spend any CPU on it.
-  const ipBlocked = peek(ipKey, PER_IP.limit, PER_IP.windowMs);
+  const ipBlocked = peek(ipKey, PER_IP.limit);
   if (!ipBlocked.ok) throw tooMany(ipBlocked.retryAfter);
-  const userBlocked = peek(userKey, PER_ACCOUNT.limit, PER_ACCOUNT.windowMs);
+  const userBlocked = peek(userKey, PER_ACCOUNT.limit);
   if (!userBlocked.ok) throw tooMany(userBlocked.retryAfter);
-  const globalBlocked = peek(
-    globalKey,
-    PER_ACCOUNT_GLOBAL.limit,
-    PER_ACCOUNT_GLOBAL.windowMs,
-  );
+  const globalBlocked = peek(globalKey, PER_ACCOUNT_GLOBAL.limit);
   if (!globalBlocked.ok) throw tooMany(globalBlocked.retryAfter);
 
   const u = await findUserByUsername(username);

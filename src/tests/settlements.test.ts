@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  allocateAnyPayment,
   allocatePayment,
   balancesFromPairwiseDebts,
   buildPairwiseDebts,
@@ -100,5 +101,68 @@ describe("pairwise settlement ledger", () => {
       { debtorId: "b", creditorId: "d", amount: 4 },
     ]);
     expect(allocatePayment(debts, "d", "a", 1)).toBeNull();
+  });
+});
+
+describe("payments of any amount", () => {
+  // a owes b 10 and b owes c 10.
+  const expenses = [expense("b", { a: 10, b: 0 }), expense("c", { b: 10, c: 0 })];
+  const chain = buildPairwiseDebts(expenses, []);
+  const ledgerAfter = (allocations: ReturnType<typeof allocateAnyPayment>) =>
+    buildPairwiseDebts(expenses, allocations ?? []);
+
+  it("routes a partial payment along the path, leaving no stale cycle", () => {
+    const allocations = allocateAnyPayment(chain, "a", "c", 4, { simplify: true });
+    expect(allocations).toEqual([
+      { debtorId: "a", creditorId: "b", amount: 4 },
+      { debtorId: "b", creditorId: "c", amount: 4 },
+    ]);
+    expect(ledgerAfter(allocations)).toEqual([
+      { debtorId: "a", creditorId: "b", amount: 6 },
+      { debtorId: "b", creditorId: "c", amount: 6 },
+    ]);
+  });
+
+  it("clears the debt exactly with a full payment", () => {
+    const allocations = allocateAnyPayment(chain, "a", "c", 10, { simplify: true });
+    expect(ledgerAfter(allocations)).toEqual([]);
+  });
+
+  it("turns the excess of an over-payment into a debt the other way", () => {
+    const allocations = allocateAnyPayment(chain, "a", "c", 15, { simplify: true });
+    expect(allocations).toEqual([
+      { debtorId: "a", creditorId: "b", amount: 10 },
+      { debtorId: "a", creditorId: "c", amount: 5 },
+      { debtorId: "b", creditorId: "c", amount: 10 },
+    ]);
+    expect(ledgerAfter(allocations)).toEqual([{ debtorId: "c", creditorId: "a", amount: 5 }]);
+  });
+
+  it("records a pair with no debt path as one direct allocation", () => {
+    const allocations = allocateAnyPayment(chain, "c", "a", 3, { simplify: true });
+    expect(allocations).toEqual([{ debtorId: "c", creditorId: "a", amount: 3 }]);
+    expect(ledgerAfter(allocations)).toContainEqual({ debtorId: "a", creditorId: "c", amount: 3 });
+  });
+
+  it("merges the direct remainder with a direct edge of the same pair", () => {
+    const debts = [{ debtorId: "a", creditorId: "b", amount: 4 }];
+    expect(allocateAnyPayment(debts, "a", "b", 6.5, { simplify: true })).toEqual([
+      { debtorId: "a", creditorId: "b", amount: 6.5 },
+    ]);
+  });
+
+  it("is always one direct allocation in pairwise mode", () => {
+    expect(allocateAnyPayment(chain, "a", "c", 4, { simplify: false })).toEqual([
+      { debtorId: "a", creditorId: "c", amount: 4 },
+    ]);
+    expect(allocateAnyPayment(chain, "a", "b", 4, { simplify: false })).toEqual([
+      { debtorId: "a", creditorId: "b", amount: 4 },
+    ]);
+  });
+
+  it("refuses a self payment or a non-positive amount", () => {
+    expect(allocateAnyPayment(chain, "a", "a", 1, { simplify: true })).toBeNull();
+    expect(allocateAnyPayment(chain, "a", "c", 0, { simplify: true })).toBeNull();
+    expect(allocateAnyPayment(chain, "a", "c", -1, { simplify: false })).toBeNull();
   });
 });

@@ -7,8 +7,7 @@
     "cancel": "Cancelar",
     "save": "Guardar",
     "delete": "Eliminar",
-    "edit": "Editar",
-    "loading": "Cargando…"
+    "edit": "Editar"
   },
   "auth": {
     "username": "Usuario",
@@ -239,6 +238,13 @@
     "pick": "¿Qué pago vas a saldar?",
     "note": "Nota (opcional)",
     "notePlaceholder": "Efectivo, transferencia…",
+    "other": "Otro pago",
+    "from": "Paga",
+    "to": "Recibe",
+    "amount": "Cantidad ({currency})",
+    "max": "Hasta {amount}",
+    "after": "Saldos tras este pago",
+    "noPayment": "No se puede registrar ningún pago con esta selección.",
     "record": "Registrar pago",
     "couldntRecord": "No se pudo registrar el pago."
   },
@@ -328,8 +334,6 @@
     "saved": "Grupo actualizado.",
     "couldntSave": "No se pudo guardar el grupo.",
     "readOnly": "Puedes ver estos ajustes, pero solo quien creó el grupo o un administrador puede cambiarlos.",
-    "creator": "creador",
-    "you": "tú",
     "role_creator": "Creador",
     "role_admin": "Administrador",
     "role_member": "Miembro",

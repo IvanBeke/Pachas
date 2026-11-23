@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { computeSplits, round2, splitsToInputValues, type SplitType } from "../app/utils/splits";
 
 const BASE = process.env.PACHAS_API ?? "http://localhost:3000";
@@ -507,8 +507,9 @@ describe.skipIf(!reachable)("expense deletion authorisation", () => {
     const short = await api(ownerCookie, "GET", "/api/users/search?q=a");
     expect(Array.isArray(short.json) ? short.json.length : 0).toBe(0);
 
-    const real = await api(ownerCookie, "GET", "/api/users/search?q=oth");
-    expect(Array.isArray(real.json) ? real.json.length : 0).toBeGreaterThan(0);
+    const real = await api(ownerCookie, "GET", `/api/users/search?q=__th${RUN}`);
+    const found = Array.isArray(real.json) ? (real.json as { id: string }[]) : [];
+    expect(found.map((user) => user.id)).toContain(otherId);
   });
 
   it("returns 404 for an expense that does not exist", async () => {
@@ -980,6 +981,126 @@ describe.skipIf(!reachable)("group role authorisation", () => {
       to: creatorId,
     });
     expect(forgedPair.status).toBe(403);
+  });
+
+  describe("payments of any amount", () => {
+    const cents = (n: number) => Math.round(n * 100);
+    // Everything a test creates is removed afterwards: later tests need the group settled up.
+    let cleanup: (() => Promise<unknown>)[] = [];
+    afterEach(async () => {
+      for (const undo of cleanup.reverse()) await undo();
+      cleanup = [];
+    });
+
+    const addExpense = async (title: string, paidBy = creatorId, participants = [creatorId, memberId]) => {
+      const res = await api(creatorCookie, "POST", `/api/groups/${gid}/expenses`, expenseInput(title, paidBy, participants));
+      expect(res.status).toBe(200);
+      cleanup.push(() => api(creatorCookie, "DELETE", `/api/groups/${gid}/expenses/${String(res.json.id)}`));
+      return res;
+    };
+    const pay = async (cookie: string, body: Record<string, unknown>) => {
+      const res = await api(cookie, "POST", `/api/groups/${gid}/settlements`, body);
+      if (res.status === 200) {
+        cleanup.push(() => api(cookie, "DELETE", `/api/groups/${gid}/settlements/${String(res.json.id)}`));
+      }
+      return res;
+    };
+    const balances = async () => {
+      const plan = (await api(creatorCookie, "GET", `/api/groups/${gid}/settlements/plan`)).json as unknown as {
+        balances: { memberId: string; amount: number }[];
+      };
+      return (id: string) => cents(plan.balances.find((x) => x.memberId === id)?.amount ?? 0);
+    };
+
+    it("moves the payer's and receiver's balances by exactly the amount, partial or between an unlinked pair", async () => {
+      await addExpense("any-amount-debt");
+      let before = await balances();
+      const partial = await pay(memberCookie, { from: memberId, to: creatorId, amount: 4 });
+      expect(partial.status, JSON.stringify(partial.json)).toBe(200);
+      expect(partial.json.amount).toBe(4);
+      let after = await balances();
+      expect(after(memberId) - before(memberId)).toBe(400);
+      expect(after(creatorId) - before(creatorId)).toBe(-400);
+
+      // The candidate now owes the member 10, who owes the creator, so the candidate's debt
+      // reaches the creator only through the member.
+      await addExpense("any-amount-chain", memberId, [memberId, candidateId]);
+      before = await balances();
+      const unlinked = await pay(adminCookie, { from: candidateId, to: creatorId, amount: 3.5 });
+      expect(unlinked.status, JSON.stringify(unlinked.json)).toBe(200);
+      after = await balances();
+      expect(after(candidateId) - before(candidateId)).toBe(350);
+      expect(after(creatorId) - before(creatorId)).toBe(-350);
+
+      // Deleting the payment gives the balances back.
+      before = after;
+      expect((await api(adminCookie, "DELETE", `/api/groups/${gid}/settlements/${String(unlinked.json.id)}`)).status)
+        .toBe(200);
+      after = await balances();
+      expect(before(candidateId) - after(candidateId)).toBe(350);
+      expect(after(creatorId) - before(creatorId)).toBe(350);
+    });
+
+    it("only lets people who owe pay and people who are owed receive, up to what they are owed", async () => {
+      await addExpense("any-amount-debt");
+      // The candidate owes nothing and is owed nothing, so nobody can pay them.
+      const toNobody = await pay(memberCookie, { from: memberId, to: candidateId, amount: 1 });
+      expect(toNobody.status, JSON.stringify(toNobody.json)).toBe(400);
+
+      // With the chain the member is settled overall (owes the creator, is owed by the candidate): they can't pay.
+      await addExpense("any-amount-chain", memberId, [memberId, candidateId]);
+      const settledPayer = await pay(memberCookie, { from: memberId, to: creatorId, amount: 1 });
+      expect(settledPayer.status, JSON.stringify(settledPayer.json)).toBe(400);
+
+      // The most the creator can receive is their whole balance: one cent more is refused.
+      const before = await balances();
+      const owed = before(creatorId);
+      const body = { from: candidateId, to: creatorId };
+      expect((await pay(adminCookie, { ...body, amount: (owed + 1) / 100 })).status).toBe(400);
+      expect((await pay(adminCookie, { ...body, amount: owed / 100 })).status).toBe(200);
+      const after = await balances();
+      expect(after(candidateId) - before(candidateId)).toBe(owed);
+      expect(after(creatorId)).toBe(0);
+
+      // A member can't record a pair they are not part of.
+      expect((await pay(memberCookie, { from: adminId, to: candidateId, amount: 1 })).status).toBe(403);
+    });
+
+    it("validates the amount and rounds it to the cent", async () => {
+      await addExpense("amount-validation-debt");
+      const body = { from: memberId, to: creatorId };
+      for (const amount of [0, -1, 0.004, "abc", null, 1_000_000_001]) {
+        expect((await pay(memberCookie, { ...body, amount })).status, String(amount)).toBe(400);
+      }
+      const rounded = await pay(memberCookie, { ...body, amount: 1.005 });
+      expect(rounded.status).toBe(200);
+      expect(rounded.json.amount).toBe(1.01);
+    });
+
+    it("settles the whole suggested debt when no amount is sent, and refuses a pair with no debt", async () => {
+      const created = await api(creatorCookie, "POST", "/api/groups", {
+        name: `__omitted_amount__${RUN}`,
+        baseCurrency: "EUR",
+        memberIds: [candidateId],
+      });
+      const solo = String(created.json.id);
+      try {
+        const seed = await api(
+          creatorCookie,
+          "POST",
+          `/api/groups/${solo}/expenses`,
+          expenseInput("omitted-amount-debt", creatorId, [creatorId, candidateId]),
+        );
+        expect(seed.status).toBe(200);
+        const body = { from: candidateId, to: creatorId };
+        const full = await api(candidateCookie, "POST", `/api/groups/${solo}/settlements`, body);
+        expect(full.status, JSON.stringify(full.json)).toBe(200);
+        expect(full.json.amount).toBe(10);
+        expect((await api(candidateCookie, "POST", `/api/groups/${solo}/settlements`, body)).status).toBe(400);
+      } finally {
+        await api(creatorCookie, "DELETE", `/api/groups/${solo}`);
+      }
+    });
   });
 
   it("applies the same ownership rules to recurring expenses", async () => {
